@@ -1,4 +1,9 @@
-# Setup Guide for Batman-adv on Debian
+**Table of Contents**
+- [Introduction](#introduction)
+- [Why Use This Tool?](#why-use-this-tool)
+- [Requirements](#requirements)
+- [Requisite Skills](#requisite-skills)
+- [Installation](#installation)
 
 ## Introduction
 B.A.T.M.A.N. advanced (often referenced as batman-adv) is an implementation of the B.A.T.M.A.N. routing protocol in the form of a Linux kernel module operating on layer 2. This repository is dedicated to making the deployment of this tool easy, quick, and versatile for almost any potential use case.
@@ -16,11 +21,14 @@ Before you can create an ad hoc mesh, you will need some hardware. This tool is 
 
 Second to the board itself, you will need at least **one WiFi radio**. This will most commonly be the onboard WiFi chipset of whatever board you are using, but it is still worth mentioning as a WiFi radio is a necessary component for each node. (*Note that additional WiFi dongles may be used to provide a WiFi Access Point, allowing end users to access the mesh, though this is not a requirement.)
 
-### Requisite Skills
+## Requisite Skills
 The idea behind this tool is to allow more typical users access to this cutting-edge technology without needing to be a Linux whiz or a networking guru. With that being said, troubleshooting is part of life with this kind of stuff, and it would behoove the installer to have some comfort with the Linux operating system (and command line), and a basic understanding of networking concepts (e.g., DHCP, DNS). Understanding the OSI model (particularly layers 2 & 3) is a bonus.
 
 In all reality, however, you can absolutely do all of this without any of the skills mentioned above as long as you have the right attitude and the will to learn as you go.
 
+## Installation
+*This section will detail the step-by-step process to install and configure Batman-adv on your device. It includes downloading the necessary software, setting up the hardware, and configuring the network.*
+
 ---
 
-## Installation
+This format will help readers navigate your documentation more effectively, especially as the document grows in length and complexity. Remember to update the links in the ToC as you add or modify the sections.
