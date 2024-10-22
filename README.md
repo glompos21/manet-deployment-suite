@@ -28,7 +28,3 @@ In all reality, however, you can absolutely do all of this without any of the sk
 
 ## Installation
 *This section will detail the step-by-step process to install and configure Batman-adv on your device. It includes downloading the necessary software, setting up the hardware, and configuring the network.*
-
----
-
-This format will help readers navigate your documentation more effectively, especially as the document grows in length and complexity. Remember to update the links in the ToC as you add or modify the sections.
