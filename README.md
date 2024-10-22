@@ -1,4 +1,4 @@
-# Mobile Ad-Hoc Deployment Suite
+# Mobile Ad-Hoc Network (MANNET) Deployment Suite
 
 **Table of Contents**
 - [Introduction](#introduction)
