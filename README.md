@@ -2,6 +2,7 @@
 
 **Table of Contents**
 - [Introduction](#introduction)
+- [What is a MANNET?](#What-is-a-MANNET?)
 - [Why Use This Tool?](#why-use-this-tool)
 - [Requirements](#requirements)
 - [Requisite Skills](#requisite-skills)
@@ -10,12 +11,15 @@
 ## Introduction
 B.A.T.M.A.N. advanced (often referenced as batman-adv) is an implementation of the B.A.T.M.A.N. routing protocol in the form of a Linux kernel module operating on layer 2. This repository is dedicated to making the deployment of this tool easy, quick, and versatile for almost any potential use case.
 
-## Why Use This Tool?
+## What is a MANNET?
 Mesh networking is by no means a new concept. If you're reading this in a public space (or a larger house), odds are you're connected to an access point that acts as part of a mesh. Mobile Ad Hoc Networking, however—also known as a 'MANET'—is starting to see some very interesting applications in our world. From networks of underground machinery to emergency response infrastructure and even special military operations, the term 'MANET' is becoming more well-known.
 
 As Cisco puts it:
 > "Mobile Ad Hoc Networks (MANETs) are an emerging type of wireless networking, in which mobile nodes associate on an extemporaneous or ad hoc basis. MANETs are both self-forming and self-healing, enabling peer-level communications between mobile nodes without reliance on centralized resources or fixed infrastructure.
 > These attributes enable MANETs to deliver significant benefits in virtually any scenario that includes a cadre of highly mobile users or platforms, a strong need to share IP-based information, and an environment in which fixed network infrastructure is impractical, impaired, or impossible. Key applications include disaster recovery, heavy construction, mining, transportation, defense, and special event management."
+
+## Why Use This Tool?
+If you want the superpower that is mobile ad-hoc networking without spending thousdands of dollars on off the shelf solutions you're in the right place.
 
 ## Requirements
 Before you can create an ad hoc mesh, you will need some hardware. This tool is designed to deploy on Debian-based Linux devices, so if it runs Debian, it will probably work (think Raspberry Pis, Libre Computer, etc.).
