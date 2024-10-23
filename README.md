@@ -19,7 +19,7 @@ As Cisco puts it:
 > These attributes enable MANETs to deliver significant benefits in virtually any scenario that includes a cadre of highly mobile users or platforms, a strong need to share IP-based information, and an environment in which fixed network infrastructure is impractical, impaired, or impossible. Key applications include disaster recovery, heavy construction, mining, transportation, defense, and special event management."
 
 ## Why Use This Tool?
-If you want the superpower that is mobile ad-hoc networking without spending thousdands of dollars on off the shelf solutions you're in the right place.
+If you want the superpower that is mobile ad-hoc networking without spending thousdands of dollars on the current off the shelf solutions you're in the right place. This tool is designed to help build a MANNET from simple and cheap off the shelf hardware that any civilian can buy, even if they're on a budget!
 
 ## Requirements
 Before you can create an ad hoc mesh, you will need some hardware. This tool is designed to deploy on Debian-based Linux devices, so if it runs Debian, it will probably work (think Raspberry Pis, Libre Computer, etc.).
