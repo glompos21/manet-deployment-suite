@@ -7,6 +7,8 @@
 - [Requirements](#requirements)
 - [Requisite Skills](#requisite-skills)
 - [Installation](#installation)
+- [Usage](#usage)
+- [Troubleshooting](#troubleshooting)
 
 ## Introduction
 B.A.T.M.A.N. advanced (often referenced as batman-adv) is an implementation of the B.A.T.M.A.N. routing protocol in the form of a Linux kernel module operating on layer 2. This repository is dedicated to making the deployment of this tool easy, quick, and versatile for almost any potential use case.
@@ -32,4 +34,76 @@ The idea behind this tool is to allow more typical users access to this cutting-
 In all reality, however, you can absolutely do all of this without any of the skills mentioned above as long as you have the right attitude and the will to learn as you go.
 
 ## Installation
-*This section will detail the step-by-step process to install and configure Batman-adv on your device. It includes downloading the necessary software, setting up the hardware, and configuring the network.*
+
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/yourusername/mobile-ad-hoc-deployment-suite.git
+   cd mobile-ad-hoc-deployment-suite
+   ```
+
+2. Make the scripts executable:
+   ```bash
+   chmod +x scripts/*.sh
+   ```
+
+3. Install Batman-adv and dependencies:
+   ```bash
+   sudo ./scripts/install_batman.sh
+   ```
+
+## Usage
+
+### Setting up a Mesh Network
+
+1. Setup the mesh network with default settings:
+   ```bash
+   sudo ./scripts/setup_mesh.sh
+   ```
+
+2. Or customize the setup with specific parameters:
+   ```bash
+   sudo ./scripts/setup_mesh.sh -i wlan0 -m mesh0 -c 02:12:34:56:78:9A
+   ```
+
+   Parameters:
+   - `-i, --interface`: WiFi interface to use (default: wlan0)
+   - `-m, --mesh-name`: Name for the mesh interface (default: mesh0)
+   - `-c, --cell-id`: Cell ID for the ad-hoc network (default: 02:12:34:56:78:9A)
+
+### Monitoring the Mesh Network
+
+To monitor the mesh network status:
+```bash
+sudo ./scripts/monitor_mesh.sh
+```
+
+This will show:
+- Connected mesh interfaces
+- Originator table (known nodes)
+- Translation table
+- Gateway information
+- Interface statistics
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Interface not found**
+   - Verify your WiFi interface name using `iwconfig`
+   - Ensure the interface is not being managed by NetworkManager
+
+2. **Cannot create mesh interface**
+   - Check if batman-adv module is loaded: `lsmod | grep batman`
+   - Try reloading the module: `sudo modprobe batman-adv`
+
+3. **No mesh connectivity**
+   - Verify all nodes are using the same cell ID
+   - Check if interfaces are in ad-hoc mode
+   - Ensure all nodes are on the same channel
+
+### Getting Help
+
+If you encounter issues:
+1. Check the output of `dmesg` for kernel messages
+2. Use `batctl` to debug mesh status
+3. Open an issue on GitHub with detailed information about your setup and the problem
