@@ -8,7 +8,7 @@ fi
 
 # Default values
 INTERFACE="wlan0"
-MESH_NAME="mesh0"
+MESH_NAME="bat0"
 CELL_ID="02:12:34:56:78:9A"
 
 # Parse command line arguments
@@ -53,7 +53,7 @@ batctl if add $INTERFACE
 ip link set up $MESH_NAME
 
 # Configure IP addressing
-ip addr add 192.168.199.1/24 dev $MESH_NAME
+ip addr add 192.168.99.1/24 dev $MESH_NAME
 
 echo "Mesh network setup complete!"
 echo "Interface: $INTERFACE"
