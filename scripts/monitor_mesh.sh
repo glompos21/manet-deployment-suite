@@ -6,7 +6,7 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-MESH_NAME="mesh0"
+MESH_NAME="bat0"
 
 while true; do
     clear
