@@ -6,27 +6,29 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-MESH_NAME="bat0"
-
 while true; do
     clear
     echo "=== BATMAN-ADV Mesh Network Monitor ==="
     echo ""
     
     echo "=== Mesh Interfaces ==="
-    batctl if
+    batctl meshif bat0 interface show
     echo ""
     
     echo "=== Originator Table ==="
-    batctl o
+    batctl meshif bat0 originators
     echo ""
     
-    echo "=== Translation Table ==="
-    batctl t
+    echo "=== Translation Table (Local) ==="
+    batctl meshif bat0 translocal
+    echo ""
+    
+    echo "=== Translation Table (Global) ==="
+    batctl meshif bat0 transglobal
     echo ""
     
     echo "=== Gateway Table ==="
-    batctl gwl
+    batctl meshif bat0 gateways
     echo ""
     
     echo "=== Interface Statistics ==="

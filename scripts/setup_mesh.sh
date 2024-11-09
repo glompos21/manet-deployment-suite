@@ -6,9 +6,18 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Check if batman-adv module is loaded
+if ! lsmod | grep -q "^batman_adv"; then
+    echo "batman-adv module is not loaded. Loading now..."
+    modprobe batman-adv
+    if [ $? -ne 0 ]; then
+        echo "Failed to load batman-adv module"
+        exit 1
+    fi
+fi
+
 # Default values
 INTERFACE="wlan0"
-MESH_NAME="bat0"
 CELL_ID="02:12:34:56:78:9A"
 
 # Parse command line arguments
@@ -16,10 +25,6 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -i|--interface)
             INTERFACE="$2"
-            shift 2
-            ;;
-        -m|--mesh-name)
-            MESH_NAME="$2"
             shift 2
             ;;
         -c|--cell-id)
@@ -50,12 +55,12 @@ ip link set $INTERFACE up
 
 # Create batman-adv interface
 batctl if add $INTERFACE
-ip link set up $MESH_NAME
+ip link set up bat0
 
 # Configure IP addressing
-ip addr add 192.168.99.1/24 dev $MESH_NAME
+ip addr add 192.168.99.1/24 dev bat0
 
 echo "Mesh network setup complete!"
 echo "Interface: $INTERFACE"
-echo "Mesh Interface: $MESH_NAME"
+echo "Batman Interface: bat0"
 echo "Cell ID: $CELL_ID"
