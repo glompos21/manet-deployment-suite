@@ -13,7 +13,9 @@ apt-get install -y \
     python3 \
     python3-pip \
     wireless-tools \
-    net-tools
+    net-tools   \
+    dnsmasq \
+    bc  \
 
 # Load batman-adv kernel module
 modprobe batman-adv
