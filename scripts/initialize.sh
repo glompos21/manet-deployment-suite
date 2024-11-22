@@ -16,6 +16,7 @@ apt-get install -y \
     net-tools   \
     dnsmasq \
     bc  \
+    iptables
 
 # Load batman-adv kernel module
 modprobe batman-adv
