@@ -190,7 +190,6 @@ The automated setup uses two key files:
 
 The configuration file (`/etc/mesh-network/mesh-config.conf`) contains all the parameters needed to set up your mesh network. Here's a detailed explanation of each parameter:
 
-note: the actual mesh-config file should not contain comments. The template should be copied from the provided file, not the example below.
 ```conf
 # Network Interface Settings
 MESH_INTERFACE=wlan0         # The wireless interface to use for mesh networking
@@ -215,6 +214,7 @@ ENABLE_ROUTING=1           # Enable IP forwarding (1=yes, 0=no)
 BATMAN_HOP_PENALTY=30      # Penalty for each hop (15-100, higher = less hops)
 BATMAN_LOG_LEVEL=batman         # Log level (0=none to 4=verbose)
 ```
+Note: The actual mesh-config file should not contain comments. The template should be copied from the file in the config_tools/ folder.
 
 #### 2. Understanding mesh-network.service
 
