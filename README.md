@@ -187,6 +187,7 @@ The automated setup uses two key files:
 
 The configuration file (`/etc/mesh-network/mesh-config.conf`) contains all the parameters needed to set up your mesh network. Here's a detailed explanation of each parameter:
 
+note: the actual mesh-config file should not contain comments. The template should be copied from the provided file, not the example below.
 ```conf
 # Network Interface Settings
 MESH_INTERFACE=wlan0         # The wireless interface to use for mesh networking
