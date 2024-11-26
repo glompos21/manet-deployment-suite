@@ -235,14 +235,14 @@ sudo mkdir -p /etc/mesh-network
 2. **Configure Mesh Settings**
 Copy the example configuration and modify for your needs:
 ```bash
-sudo cp mesh-config.conf /etc/mesh-network/
+sudo cp config_tools/mesh-config.conf /etc/mesh-network/
 sudo nano /etc/mesh-network/mesh-config.conf
 ```
 
 3. **Install and Enable the Service**
 ```bash
 # Copy service file
-sudo cp mesh-network.service /etc/systemd/system/
+sudo cp config_tools/mesh-network.service /etc/systemd/system/
 
 # Set permissions
 sudo chmod 644 /etc/systemd/system/mesh-network.service
