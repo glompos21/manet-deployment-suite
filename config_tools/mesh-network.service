@@ -8,8 +8,8 @@ Type=oneshot
 RemainAfterExit=yes
 EnvironmentFile=/etc/mesh-network/mesh-config.conf
 
-ExecStart=/usr/local/sbin/mesh-network.sh
-ExecStop=/usr/local/sbin/mesh-network-stop.sh
+ExecStart=/usr/sbin/mesh-network.sh
+ExecStop=/usr/sbin/mesh-network-stop.sh
 
 [Install]
 WantedBy=multi-user.target

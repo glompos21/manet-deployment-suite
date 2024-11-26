@@ -243,10 +243,13 @@ sudo nano /etc/mesh-network/mesh-config.conf
 ```bash
 # Copy service file
 sudo cp config_tools/mesh-network.service /etc/systemd/system/
-
+# Copy service executables
+sudo cp config_tools/mesh-network.sh /usr/sbin/
+sudo cp config_tools/mesh-network-stop.sh /usr/sbin/
 # Set permissions
 sudo chmod 644 /etc/systemd/system/mesh-network.service
-sudo chmod 644 /etc/mesh-network/mesh-config.conf
+sudo chmod 644 /usr/sbin/mesh-network.sh
+sudo chmod 644 /usr/sbin/mesh-network-stop.sh
 
 # Enable and start the service
 sudo systemctl daemon-reload
