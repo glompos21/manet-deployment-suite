@@ -39,29 +39,32 @@
   - [Basic Monitoring](#basic-monitoring)
   - [Performance Testing](#performance-testing)
 - [References](#references)
-- [Contributing](#contributing)
 
 ## Introduction
 
-B.A.T.M.A.N. advanced (often referenced as batman-adv) is an implementation of the B.A.T.M.A.N. routing protocol in the form of a Linux kernel module operating on layer 2. This repository is dedicated to making the deployment of this tool easy, quick, and versatile for almost any potential use case.
+The B.A.T.M.A.N. advanced (commonly referred to as batman-adv) is an implementation of the B.A.T.M.A.N. layer 2 routing protocol, integrated as a Linux kernel module. This repository aims to simplify the deployment of batman-adv, ensuring it is easy, efficient, and adaptable to various use cases.
 
 ## What is a MANET?
 
-Mesh networking is by no means a new concept. If you're reading this in a public space (or a larger house), odds are you're connected to an access point that acts as part of a mesh. Mobile Ad Hoc Networking, however—also known as a 'MANET'—is starting to see some very interesting applications in our world. From networks of underground machinery to emergency response infrastructure and even special military operations, the term 'MANET' is becoming more well-known.
+Mesh networking is not a novel concept. If you are in a public space or a large residence, there is a good chance that you are connected to a network through an access point that is part of a mesh. However, Mobile Ad Hoc Networking (MANET) brings unique possibilities, especially in highly dynamic environments. MANETs are increasingly finding critical applications in areas such as underground mining operations, emergency response systems, and specialized military communications. This has led to a rising awareness and use of the term "MANET" in both industrial and public domains.
 
-As Cisco puts it:
+As Cisco describes it:
+
 > "Mobile Ad Hoc Networks (MANETs) are an emerging type of wireless networking, in which mobile nodes associate on an extemporaneous or ad hoc basis. MANETs are both self-forming and self-healing, enabling peer-level communications between mobile nodes without reliance on centralized resources or fixed infrastructure.
+>
 > These attributes enable MANETs to deliver significant benefits in virtually any scenario that includes a cadre of highly mobile users or platforms, a strong need to share IP-based information, and an environment in which fixed network infrastructure is impractical, impaired, or impossible. Key applications include disaster recovery, heavy construction, mining, transportation, defense, and special event management."
 
 ## Why Use This Guide?
 
-If you and your team want the superpower that is mobile ad-hoc networking without spending thousands of dollars on the current off-the-shelf solutions... you're in the right place. This tool is designed to help build a MANET from off-the-shelf hardware that any civilian can buy, even if they're on a budget!
+If your team is looking to harness the capabilities of mobile ad-hoc networking without incurring the considerable expenses associated with commercial off-the-shelf solutions, this guide is for you. This tool is designed to assist you in building a MANET using easily accessible, consumer-grade hardware, even on a limited budget.
 
 ## Requirements
 
-Before you can create an ad hoc mesh, you will need some hardware. This tool is designed to deploy on Debian-based Linux devices, so if it runs Debian, it will probably work (think Raspberry Pis, Libre Computer, etc.).
+To set up an ad hoc mesh network, you will need some specific hardware. This tool is optimized for deployment on Debian-based Linux devices, so any hardware capable of running Debian (such as Raspberry Pi, Libre Computer, etc.) should suffice.
 
-Second to the board itself, you will need at least **one WiFi radio**. This will most commonly be the onboard WiFi chipset of whatever board you are using, but it is still worth mentioning as a WiFi radio is a necessary component for each node. (*Note that additional WiFi dongles may be used to provide a WiFi Access Point, allowing end users to access the mesh, though this is not a requirement.)
+In addition to the mainboard, each node must have at least **one WiFi radio**. Often, this will be the onboard WiFi chipset of the board itself. However, additional WiFi adapters can be utilized to provide an Access Point for users to access the network, though this is optional. A WiFi radio is an essential component of each node, as it enables communication within the mesh.
+
+(*Note: While additional WiFi dongles may be used to provide a WiFi Access Point, enabling connectivity for end users, this is not strictly required.)
 
 ### Network Types
 
