@@ -62,7 +62,7 @@ If your team is looking to harness the capabilities of mobile ad-hoc networking 
 
 To set up an ad hoc mesh network, you will need some specific hardware. This tool is optimized for deployment on Debian-based Linux devices, so any hardware capable of running Debian (such as Raspberry Pi, Libre Computer, etc.) should suffice.
 
-In addition to the mainboard, each node must have at least **one WiFi radio**. Often, this will be the onboard WiFi chipset of the board itself. However, additional WiFi adapters can be utilized to provide an Access Point for users to access the network, though this is optional. A WiFi radio is an essential component of each node, as it enables communication within the mesh.
+In addition to the mainboard, each node must have at least **one WiFi radio**. Often, this will be the onboard WiFi chipset of the board itself. However, additional WiFi adapters can be utilized to provide an Access Point for users to access the network, though this is optional*.
 
 (*Note: While additional WiFi dongles may be used to provide a WiFi Access Point, enabling connectivity for end users, this is not strictly required.)
 
