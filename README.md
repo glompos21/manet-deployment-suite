@@ -617,10 +617,3 @@ iperf3 -c target.ip.address  # on client
 - [Debian Network Configuration](https://wiki.debian.org/NetworkConfiguration)
 - [Netfilter/iptables Documentation](https://netfilter.org/documentation/)
 
-## Contributing
-
-This guide is maintained as a living document. Contributions are welcome to:
-- Add new hardware configurations
-- Improve troubleshooting steps
-- Share optimization techniques
-- Document successful deployments
