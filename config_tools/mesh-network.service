@@ -8,6 +8,7 @@ Type=oneshot
 RemainAfterExit=yes
 EnvironmentFile=/etc/mesh-network/mesh-config.conf
 
+ExecStartPre=/bin/bash -c 'while ! ip link show $MESH_INTERFACE; do sleep 2; done'
 ExecStart=/usr/sbin/mesh-network.sh
 ExecStop=/usr/sbin/mesh-network-stop.sh
 
