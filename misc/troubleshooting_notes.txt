@@ -1,0 +1,57 @@
+problem: commands like ifconfig, iwconfig aren't working
+solution: link sbin to path. add the following to .bashrc: export PATH=$PATH:/sbin:/usr/sbin
+
+---
+
+problem: interfaces names are changing after restart (eg. adapter that was previoiusly named wlan2 is switched with wlan0)
+solution: Persistent Naming with Systemd-Networkd 
+Create Link Configuration Files For each wireless device, create a .link file in /etc/systemd/network/. For example, for the device with MAC address xx:xx:xx:xx:xx:xx, create:
+
+sudo nano /etc/systemd/network/10-wlan0.link
+
+Add the following configuration:
+
+[Match]
+MACAddress=xx:xx:xx:xx:xx:xx
+
+[Link]
+Name=wlan0
+
+---
+
+problem: default motd is annoying
+solution: sudo rm /etc/motd
+use custom log in message 'welcome.sh'
+
+---
+
+problem: kernal errors, seems to happen after running 'sudo batctl throughputmeter...'
+solution?: don't run that test, this seems to be an issue with the current batctl throughputmeter version.
+
+---
+
+problem: dnsmasq not starting
+solution: assign an ip to the interfaces that are used, the mesh-networking.service only assigns mesh ip to mesh node, extra adapters need to get ip's set manually. 
+'sudo nano /etc/network/interfaces' 
+auto wlan1
+iface wlan1 inet static
+    address 10.10.0.1
+    netmask 255.255.255.0
+'sudo systemctl restart networking'
+
+---
+
+problem: default wifi configuration blocking batman script (eg. raspberry pi configured to connect to network)
+solution: show networkmanager shit 'nmcli connection show' delete connection nmcli connection delete "Wi-Fi connection 1"
+after doing this I also had to add this to the .service file 'ExecStartPre=/bin/bash -c 'while ! ip link show wlan0; do sleep 2; done'
+
+---
+
+problem: can't ssh between nodes
+solution: install ssh keys to nodes
+start ssh agent 'eval "$(ssh-agent -s)"'
+add key 'ssh-add ~/.ssh/id_rsa'
+verify 'ssh-add -l'
+
+---
+
