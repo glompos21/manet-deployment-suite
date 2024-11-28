@@ -53,5 +53,9 @@ start ssh agent 'eval "$(ssh-agent -s)"'
 add key 'ssh-add ~/.ssh/id_rsa'
 verify 'ssh-add -l'
 
+note: create an ssh key just for the mesh, don't upload any critical data/credentials to the nodes since they are not secure*.
+ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
+*wireguard can be implemented to encrypt mesh traffic & prevent mitm attacks but requires much more planning and introduces some issues as mesh sizes increase. Maby create a seperate guide for this.
+
 ---
 
