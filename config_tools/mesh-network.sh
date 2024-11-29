@@ -21,7 +21,7 @@ iwconfig "${MESH_INTERFACE}" 2>/dev/null | grep -q "IEEE 802.11" || { echo "Erro
 
 # Function to detect gateway IP from batman-adv
 detect_gateway_ip() {
-    echo "Debug: Starting gateway detection"
+    echo "Debug: Starting gateway detection" >&2
     
     # Check if bat0 interface exists
     if ! ip link show bat0 >/dev/null 2>&1; then
@@ -29,31 +29,27 @@ detect_gateway_ip() {
         return 1
     fi
     
-    # Check if any gateway exists
-    echo "Debug: Running batctl gwl" >&2
-    batctl gwl 2>&1 || { echo "Error: batctl gwl failed" >&2; return 1; }
+    # Check if any gateway exists and capture gateway MAC
+    gateway_mac=$(batctl gwl 2>/dev/null | grep -E "^.*\[.*\].*[0-9]+\.[0-9]+/[0-9]+\.[0-9]+.*MBit" | awk '{print $1}')
     
-    if ! batctl gwl 2>/dev/null | grep -E "^.*\[.*\].*[0-9]+\.[0-9]+/[0-9]+\.[0-9]+.*MBit" >/dev/null; then
+    if [ -z "$gateway_mac" ]; then
         echo "Debug: No gateway found in batctl gwl" >&2
         return 1
     fi
     
-    echo "Debug: Gateway found in batctl gwl, searching for IP" >&2
+    echo "Debug: Found gateway MAC: ${gateway_mac}" >&2
     
     # Try all possible IPs
     for i in $(seq 1 254); do
         test_ip="10.0.0.${i}"
-        echo "Debug: Trying ${test_ip}"
+        echo "Debug: Trying ${test_ip}" >&2
         
         # Run arping and capture output
-        arping_output=$(timeout 2s arping -I bat0 -c 2 "${test_ip}" 2>&1)
-        if echo "$arping_output" | grep -q "bytes from"; then
-            echo "Debug: Found gateway at ${test_ip}"
-            # Just return the IP we tested, not the arping output
+        if timeout 2s arping -I bat0 -c 2 "${test_ip}" 2>/dev/null | grep -q "bytes from"; then
+            echo "Debug: Found gateway at ${test_ip}" >&2
             echo "${test_ip}"
             return 0
         fi
-        sleep 1
     done
     
     echo "Debug: No gateway IP found" >&2
@@ -186,15 +182,17 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
         echo "Debug: Current gateway list:"
         batctl gwl || echo "Warning: Could not get gateway list"
         
-        detected_gateway=$(detect_gateway_ip 2>&1) || echo "Warning: Gateway detection failed: $detected_gateway"
-        
-        echo "Debug: Raw detected_gateway output: '${detected_gateway}'"
+        # Capture only stdout, redirect stderr to console for debugging
+        detected_gateway=$(detect_gateway_ip 2>/dev/null) || {
+            echo "Warning: Gateway detection failed"
+            detected_gateway=""
+        }
         
         if [ -n "$detected_gateway" ] && [[ "$detected_gateway" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             GATEWAY_IP="$detected_gateway"
             echo "Debug: Using detected gateway IP: ${GATEWAY_IP}"
         else
-            echo "Debug: No valid gateway detected (${detected_gateway}), using configured GATEWAY_IP: ${GATEWAY_IP}"
+            echo "Debug: No valid gateway detected, using configured GATEWAY_IP: ${GATEWAY_IP}"
         fi
     else
         echo "Debug: Running in server mode, skipping gateway detection"
