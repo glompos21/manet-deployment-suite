@@ -19,6 +19,47 @@ command -v nmcli >/dev/null 2>&1 || { echo "Error: nmcli not found"; exit 1; }
 ip link show "${MESH_INTERFACE}" >/dev/null 2>&1 || { echo "Error: ${MESH_INTERFACE} interface not found"; exit 1; }
 iwconfig "${MESH_INTERFACE}" 2>/dev/null | grep -q "IEEE 802.11" || { echo "Error: ${MESH_INTERFACE} is not a wireless interface"; exit 1; }
 
+# Function to detect gateway IP from batman-adv
+detect_gateway_ip() {
+    echo "Debug: Starting gateway detection"
+    
+    # Check if bat0 interface exists
+    if ! ip link show bat0 >/dev/null 2>&1; then
+        echo "Debug: bat0 interface not found" >&2
+        return 1
+    fi
+    
+    # Check if any gateway exists
+    echo "Debug: Running batctl gwl" >&2
+    batctl gwl 2>&1 || { echo "Error: batctl gwl failed" >&2; return 1; }
+    
+    if ! batctl gwl 2>/dev/null | grep -E "^.*\[.*\].*[0-9]+\.[0-9]+/[0-9]+\.[0-9]+.*MBit" >/dev/null; then
+        echo "Debug: No gateway found in batctl gwl" >&2
+        return 1
+    fi
+    
+    echo "Debug: Gateway found in batctl gwl, searching for IP" >&2
+    
+    # Try all possible IPs
+    for i in $(seq 1 254); do
+        test_ip="10.0.0.${i}"
+        echo "Debug: Trying ${test_ip}"
+        
+        # Run arping and capture output
+        arping_output=$(timeout 2s arping -I bat0 -c 2 "${test_ip}" 2>&1)
+        if echo "$arping_output" | grep -q "bytes from"; then
+            echo "Debug: Found gateway at ${test_ip}"
+            # Just return the IP we tested, not the arping output
+            echo "${test_ip}"
+            return 0
+        fi
+        sleep 1
+    done
+    
+    echo "Debug: No gateway IP found" >&2
+    return 1
+}
+
 # Configure wireless interface
 echo "Debug: Setting regulatory domain"
 iw reg set US
@@ -94,47 +135,70 @@ ip addr add "${NODE_IP}/${MESH_NETMASK}" dev bat0 || {
     exit 1
 }
 
+echo "Debug: Adding mesh network route"
+ip route del 10.0.0.0/16 dev bat0 2>/dev/null || true
+ip route add 10.0.0.0/16 dev bat0 proto kernel scope link src 10.0.0.2 || {
+    echo "Error: Failed to add mesh network route"
+    exit 1
+}
+
 if [ "${ENABLE_ROUTING}" = "1" ]; then
     echo "Debug: Configuring routing and firewall"
-    sysctl -w net.ipv4.ip_forward=1
+    sysctl -w net.ipv4.ip_forward=1 || { echo "Error: Failed to enable IP forwarding"; exit 1; }
     
-    # Clean up existing firewall rules
-    iptables -F
-    iptables -t nat -F
-    iptables -t mangle -F
-    iptables -P INPUT ACCEPT
-    iptables -P FORWARD ACCEPT
-    iptables -P OUTPUT ACCEPT
+    echo "Debug: Flushing existing routes and firewall rules"
+    # Clean up existing firewall rules and routes
+    ip route flush dev bat0 || echo "Warning: Could not flush routes"
+    iptables -F || { echo "Error: Failed to flush iptables rules"; exit 1; }
+    iptables -t nat -F || { echo "Error: Failed to flush NAT rules"; exit 1; }
+    iptables -t mangle -F || { echo "Error: Failed to flush mangle rules"; exit 1; }
     
+    echo "Debug: Setting default policies"
+    iptables -P INPUT ACCEPT || { echo "Error: Failed to set INPUT policy"; exit 1; }
+    iptables -P FORWARD ACCEPT || { echo "Error: Failed to set FORWARD policy"; exit 1; }
+    iptables -P OUTPUT ACCEPT || { echo "Error: Failed to set OUTPUT policy"; exit 1; }
+    
+    echo "Debug: Configuring connection tracking"
     # Connection tracking
-    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-    iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT || { echo "Error: Failed to add INPUT state rule"; exit 1; }
+    iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT || { echo "Error: Failed to add FORWARD state rule"; exit 1; }
     
+    echo "Debug: Setting up mesh routing rules"
     # Basic mesh routing
-    iptables -A FORWARD -i bat0 -j ACCEPT
-    iptables -A FORWARD -o bat0 -j ACCEPT
+    iptables -A FORWARD -i bat0 -j ACCEPT || { echo "Error: Failed to add FORWARD input rule"; exit 1; }
+    iptables -A FORWARD -o bat0 -j ACCEPT || { echo "Error: Failed to add FORWARD output rule"; exit 1; }
     
+    echo "Debug: Configuring NAT"
     # NAT configuration
-    iptables -t nat -A POSTROUTING -o bat0 -j MASQUERADE
+    iptables -t nat -A POSTROUTING -o bat0 -j MASQUERADE || { echo "Error: Failed to add MASQUERADE rule"; exit 1; }
     
+    echo "Debug: Setting up logging rules"
     # Security logging
-    iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables_INPUT_denied: " --log-level 7
-    iptables -A FORWARD -m limit --limit 5/min -j LOG --log-prefix "iptables_FORWARD_denied: " --log-level 7
+    iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables_INPUT_denied: " --log-level 7 || echo "Warning: Failed to add INPUT logging rule"
+    iptables -A FORWARD -m limit --limit 5/min -j LOG --log-prefix "iptables_FORWARD_denied: " --log-level 7 || echo "Warning: Failed to add FORWARD logging rule"
     
-    # Clean up existing routes
-    ip route flush dev bat0
-
-    # Only add gateway route if NODE_IP and GATEWAY_IP are different
-    if [ "${NODE_IP}" != "${GATEWAY_IP}" ]; then
-        ip route add default via "${GATEWAY_IP}" dev bat0 metric 100 || {
-            echo "Warning: Failed to add gateway route"
-        }
+    echo "Debug: Detecting gateway"
+    # Detect and configure gateway routing
+    if [ "${BATMAN_GW_MODE}" != "server" ]; then
+        echo "Debug: Not in server mode, attempting gateway detection"
+        echo "Debug: Current BATMAN_GW_MODE=${BATMAN_GW_MODE}"
+        
+        echo "Debug: Current gateway list:"
+        batctl gwl || echo "Warning: Could not get gateway list"
+        
+        detected_gateway=$(detect_gateway_ip 2>&1) || echo "Warning: Gateway detection failed: $detected_gateway"
+        
+        echo "Debug: Raw detected_gateway output: '${detected_gateway}'"
+        
+        if [ -n "$detected_gateway" ] && [[ "$detected_gateway" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            GATEWAY_IP="$detected_gateway"
+            echo "Debug: Using detected gateway IP: ${GATEWAY_IP}"
+        else
+            echo "Debug: No valid gateway detected (${detected_gateway}), using configured GATEWAY_IP: ${GATEWAY_IP}"
+        fi
+    else
+        echo "Debug: Running in server mode, skipping gateway detection"
     fi
-    
-    # Add node route
-    ip route add default via "${NODE_IP}" dev bat0 metric 200 || {
-        echo "Warning: Failed to add node route"
-    }
 fi
 
 echo "Debug: Setting BATMAN-adv parameters"

@@ -163,7 +163,8 @@ sudo apt install -y \
     bridge-utils \
     iptables   \
     dnsmasq \
-    hostapd 
+    hostapd \
+    arping
 ```
 
 ### 3. Load Batman-adv Module
