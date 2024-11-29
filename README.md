@@ -207,9 +207,9 @@ BATMAN_GW_MODE=server      # Gateway mode: server (provides internet)
 
 # IP Configuration
 NODE_IP=10.0.0.1           # IP address for this node (unique per node)
-GATEWAY_IP=10.0.0.1        # IP address of gateway node (if applicable, keep same as NODE_IP if none is set)
 MESH_NETMASK=16            # Network mask (e.g., 24 for /24)
 ENABLE_ROUTING=1           # Enable IP forwarding (1=yes, 0=no)
+GATEWAY_IP=10.0.0.1        # IP address of gateway node (only required if ENABLE_ROUTING is set to 1)
 
 # Advanced Settings
 BATMAN_HOP_PENALTY=30      # Penalty for each hop (15-100, higher = less hops)

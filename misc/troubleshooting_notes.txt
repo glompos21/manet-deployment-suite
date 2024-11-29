@@ -81,5 +81,11 @@ maby do this in the configuration service?
 
 note. mesh nodes without direct access to wan can set wan gateway with above command
 this should be configured in the service and config files
+
+---
+
+**problem: kernal panic on every node in network when scanned with arping. similar issue with throughputmeter except this crashes all nodes** 
+solution: don't do that
+
 ---
 
