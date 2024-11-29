@@ -40,12 +40,15 @@ detect_gateway_ip() {
     echo "Debug: Found gateway MAC: ${gateway_mac}" >&2
     
     # Try all possible IPs
+    # This is a dumb approach and not super reliable, but it's better than hardcoding the gateway IP
+    # If systemctl restart mesh-network.service takes forever, it probably missed the gateway and is trying all other options.
     for i in $(seq 1 254); do
         test_ip="10.0.0.${i}"
         echo "Debug: Trying ${test_ip}" >&2
         
         # Run arping and capture output
-        if timeout 2s arping -I bat0 -c 2 "${test_ip}" 2>/dev/null | grep -q "bytes from"; then
+        # Adjusted to 5 seconds to allow for slow connections
+        if timeout 5s arping -I bat0 -c 3 "${test_ip}" 2>/dev/null | grep -q "bytes from"; then
             echo "Debug: Found gateway at ${test_ip}" >&2
             echo "${test_ip}"
             return 0
@@ -132,8 +135,10 @@ ip addr add "${NODE_IP}/${MESH_NETMASK}" dev bat0 || {
 }
 
 echo "Debug: Adding mesh network route"
-ip route del 10.0.0.0/16 dev bat0 2>/dev/null || true
-ip route add 10.0.0.0/16 dev bat0 proto kernel scope link src 10.0.0.2 || {
+# Calculate network address from NODE_IP and MESH_NETMASK
+NETWORK_ADDRESS="${NODE_IP%.*}.0"  # Extract first 3 octets and append .0
+ip route flush dev bat0 || echo "Warning: Could not flush routes"
+ip route add "${NETWORK_ADDRESS}/${MESH_NETMASK}" dev bat0 proto kernel scope link src "${NODE_IP}" || {
     echo "Error: Failed to add mesh network route"
     exit 1
 }
@@ -143,8 +148,7 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
     sysctl -w net.ipv4.ip_forward=1 || { echo "Error: Failed to enable IP forwarding"; exit 1; }
     
     echo "Debug: Flushing existing routes and firewall rules"
-    # Clean up existing firewall rules and routes
-    ip route flush dev bat0 || echo "Warning: Could not flush routes"
+    # Clean up existing firewall rules
     iptables -F || { echo "Error: Failed to flush iptables rules"; exit 1; }
     iptables -t nat -F || { echo "Error: Failed to flush NAT rules"; exit 1; }
     iptables -t mangle -F || { echo "Error: Failed to flush mangle rules"; exit 1; }
@@ -194,6 +198,14 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
         else
             echo "Debug: No valid gateway detected, using configured GATEWAY_IP: ${GATEWAY_IP}"
         fi
+
+        if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 150; then
+            echo "Error: Failed to add default route through bat0"
+            echo "Debug: Current routing table:"
+            ip route show
+            exit 1
+        fi
+        
     else
         echo "Debug: Running in server mode, skipping gateway detection"
     fi
