@@ -87,12 +87,18 @@ ip link set up dev bat0
 sleep 1
 
 echo "Debug: Configuring IP address"
-ip addr del "${NODE_IP}/${MESH_NETMASK}" dev bat0 2>/dev/null || true
-ip addr add "${NODE_IP}/${MESH_NETMASK}" dev bat0
+# Clean up existing IP configuration
+ip addr flush dev bat0 2>/dev/null || true
+ip addr add "${NODE_IP}/${MESH_NETMASK}" dev bat0 || {
+    echo "Error: Failed to add IP address to bat0"
+    exit 1
+}
 
 if [ "${ENABLE_ROUTING}" = "1" ]; then
     echo "Debug: Configuring routing and firewall"
     sysctl -w net.ipv4.ip_forward=1
+    
+    # Clean up existing firewall rules
     iptables -F
     iptables -t nat -F
     iptables -t mangle -F
@@ -115,10 +121,20 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
     iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables_INPUT_denied: " --log-level 7
     iptables -A FORWARD -m limit --limit 5/min -j LOG --log-prefix "iptables_FORWARD_denied: " --log-level 7
     
-    ip route del default via "${NODE_IP}" dev bat0 2>/dev/null || true
-    ip route del default via "${GATEWAY_IP}" dev bat0 2>/dev/null || true
-    ip route add default via "${GATEWAY_IP}" dev bat0 metric 100
-    ip route add default via "${NODE_IP}" dev bat0 metric 200
+    # Clean up existing routes
+    ip route flush dev bat0
+
+    # Only add gateway route if NODE_IP and GATEWAY_IP are different
+    if [ "${NODE_IP}" != "${GATEWAY_IP}" ]; then
+        ip route add default via "${GATEWAY_IP}" dev bat0 metric 100 || {
+            echo "Warning: Failed to add gateway route"
+        }
+    fi
+    
+    # Add node route
+    ip route add default via "${NODE_IP}" dev bat0 metric 200 || {
+        echo "Warning: Failed to add node route"
+    }
 fi
 
 echo "Debug: Setting BATMAN-adv parameters"
