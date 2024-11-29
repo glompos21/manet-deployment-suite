@@ -87,8 +87,8 @@ ip link set up dev bat0
 sleep 1
 
 echo "Debug: Configuring IP address"
-ip addr del "${MESH_IP}/${MESH_NETMASK}" dev bat0 2>/dev/null || true
-ip addr add "${MESH_IP}/${MESH_NETMASK}" dev bat0
+ip addr del "${NODE_IP}/${MESH_NETMASK}" dev bat0 2>/dev/null || true
+ip addr add "${NODE_IP}/${MESH_NETMASK}" dev bat0
 
 if [ "${ENABLE_ROUTING}" = "1" ]; then
     echo "Debug: Configuring routing and firewall"
@@ -115,8 +115,10 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
     iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables_INPUT_denied: " --log-level 7
     iptables -A FORWARD -m limit --limit 5/min -j LOG --log-prefix "iptables_FORWARD_denied: " --log-level 7
     
-    ip route del default via "${MESH_IP}" dev bat0 2>/dev/null || true
-    ip route add default via "${MESH_IP}" dev bat0
+    ip route del default via "${NODE_IP}" dev bat0 2>/dev/null || true
+    ip route del default via "${GATEWAY_IP}" dev bat0 2>/dev/null || true
+    ip route add default via "${GATEWAY_IP}" dev bat0 metric 100
+    ip route add default via "${NODE_IP}" dev bat0 metric 200
 fi
 
 echo "Debug: Setting BATMAN-adv parameters"

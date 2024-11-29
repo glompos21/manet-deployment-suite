@@ -193,7 +193,7 @@ The configuration file (`/etc/mesh-network/mesh-config.conf`) contains all the p
 ```conf
 # Network Interface Settings
 MESH_INTERFACE=wlan0         # The wireless interface to use for mesh networking
-MESH_MTU=1500               # Maximum Transmission Unit size
+MESH_MTU=1500               # Maximum Transmission Unit size*
 MESH_MODE=ad-hoc            # Wireless mode (must be ad-hoc for mesh)
 MESH_ESSID=mesh-network     # Network name (must be identical across all nodes)
 MESH_CHANNEL=1              # WiFi channel (1, 6, or 11 recommended)
@@ -206,8 +206,9 @@ BATMAN_GW_MODE=server      # Gateway mode: server (provides internet)
                              # client (uses internet), or off
 
 # IP Configuration
-MESH_IP=192.168.99.1       # IP address for this node (unique per node)
-MESH_NETMASK=24            # Network mask (e.g., 24 for /24)
+NODE_IP=10.0.0.1           # IP address for this node (unique per node)
+GATEWAY_IP=10.0.0.1        # IP address of gateway node (if applicable, keep same as NODE_IP if none is set)
+MESH_NETMASK=16            # Network mask (e.g., 24 for /24)
 ENABLE_ROUTING=1           # Enable IP forwarding (1=yes, 0=no)
 
 # Advanced Settings

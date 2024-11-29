@@ -3,8 +3,9 @@
 echo "==== Stopping mesh network ===="
 
 # Cleanup routing and IP configuration
-ip route del default via "${MESH_IP}" dev bat0 2>/dev/null || true
-ip addr del "${MESH_IP}/${MESH_NETMASK}" dev bat0 2>/dev/null || true
+ip route del default via "${NODE_IP}" dev bat0 2>/dev/null || true
+ip route del default via "${GATEWAY_IP}" dev bat0 2>/dev/null || true
+ip addr del "${NODE_IP}/${MESH_NETMASK}" dev bat0 2>/dev/null || true
 ip link set down dev bat0 2>/dev/null || true
 
 # Remove interface from batman-adv

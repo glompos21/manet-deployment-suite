@@ -53,9 +53,33 @@ start ssh agent 'eval "$(ssh-agent -s)"'
 add key 'ssh-add ~/.ssh/id_rsa'
 verify 'ssh-add -l'
 
+copy public key to server: 'ssh-copy-id -i ~/.ssh/id_rsa.pub user@server_ip'
+
 note: create an ssh key just for the mesh, don't upload any critical data/credentials to the nodes since they are not secure*.
 ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
 *wireguard can be implemented to encrypt mesh traffic & prevent mitm attacks but requires much more planning and introduces some issues as mesh sizes increase. Maby create a seperate guide for this.
 
+---
+
+problem: getting denied publickey after adding keys
+try: Ensure correct permissions for the .ssh directory and key files:
+
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_rsa
+chmod 600 ~/.ssh/authorized_keys
+
+Verify ownership of the .ssh directory and files:
+
+chown -R $(whoami):$(whoami) ~/.ssh
+
+---
+
+problem: can't reach intenet through gateway
+solution: delete default batman route 'sudo ip route del default via 10.0.0.1 dev bat0'
+re-add it with lower priority/higher metric 'sudo ip route add default via 10.0.0.1 dev bat0 metric 200'
+maby do this in the configuration service?
+
+note. mesh nodes without direct access to wan can set wan gateway with above command
+this should be configured in the service and config files
 ---
 
