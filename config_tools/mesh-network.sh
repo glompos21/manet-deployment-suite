@@ -39,16 +39,16 @@ detect_gateway_ip() {
     
     echo "Debug: Found gateway MAC: ${gateway_mac}" >&2
     
+    # Extract network prefix from NODE_IP
+    network_prefix="${NODE_IP%.*}"
+    
     # Try all possible IPs
-    # This is a dumb approach and not super reliable, but it's better than hardcoding the gateway IP
-    # If systemctl restart mesh-network.service takes forever, it probably missed the gateway and is trying all other options.
-    for i in $(seq 1 254); do
-        test_ip="10.0.0.${i}"
+    for i in $(seq 1 24); do
+        test_ip="${network_prefix}.${i}"
         echo "Debug: Trying ${test_ip}" >&2
         
         # Run arping and capture output
-        # Adjusted to 5 seconds to allow for slow connections
-        if timeout 5s arping -I bat0 -c 3 "${test_ip}" 2>/dev/null | grep -q "bytes from"; then
+        if arping -I bat0 -c 5 "${test_ip}" 2>/dev/null | grep -q "bytes from"; then
             echo "Debug: Found gateway at ${test_ip}" >&2
             echo "${test_ip}"
             return 0
