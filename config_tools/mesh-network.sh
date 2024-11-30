@@ -208,6 +208,12 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
         
     else
         echo "Debug: Running in server mode, skipping gateway detection"
+        # Allow forwarding between all relevant interfaces
+        sudo iptables -A FORWARD -i bat0 -o $WAN_IFACE -j ACCEPT
+        sudo iptables -A FORWARD -i $WAN_IFACE -o bat0 -j ACCEPT
+
+        # Setup NAT for internet access
+        sudo iptables -t nat -A POSTROUTING -o $WAN_IFACE -j MASQUERADE
     fi
 fi
 
