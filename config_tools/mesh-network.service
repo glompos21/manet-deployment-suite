@@ -1,16 +1,14 @@
 [Unit]
-Description=Mobile Ad-Hoc Mesh Network Service
-Wants=NetworkManager-wait-online.service
-After=NetworkManager-wait-online.service
+Description=Mesh Network Service
+After=network.target
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-EnvironmentFile=/etc/mesh-network/mesh-config.conf
-
-ExecStartPre=/bin/bash -c 'while ! ip link show $MESH_INTERFACE; do sleep 2; done'
-ExecStart=/usr/sbin/mesh-network.sh
+Type=simple
+ExecStart=/usr/sbin/mesh-network.sh service
 ExecStop=/usr/sbin/mesh-network-stop.sh
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/mesh-network/mesh-config.conf
 
 [Install]
 WantedBy=multi-user.target

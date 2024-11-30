@@ -3,13 +3,18 @@
 # Exit on any error
 set -e
 
-# Enable debug logging
-set -x
-
-# Log file setup
-LOG_FILE="/var/log/mesh-network.log"
-exec 1> >(tee -a "${LOG_FILE}")
-exec 2>&1
+# Check if running as a service
+if [ "${1}" = "service" ]; then
+    # Redirect output to log file without tee when running as a service
+    LOG_FILE="/var/log/mesh-network.log"
+    exec 1>> "${LOG_FILE}"
+    exec 2>> "${LOG_FILE}"
+else
+    # Keep the existing tee logging for interactive use
+    LOG_FILE="/var/log/mesh-network.log"
+    exec 1> >(tee -a "${LOG_FILE}")
+    exec 2>&1
+fi
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
@@ -76,29 +81,6 @@ detect_gateway_ip() {
     # Try to resolve gateway addresses using batctl
     local batman_nodes
     batman_nodes=$(batctl n 2>/dev/null | grep -v "No batman nodes in range" || true)
-    
-    if [ -n "${batman_nodes}" ]; then
-        log "Found BATMAN nodes: ${batman_nodes}" >&2
-        
-        # Extract network prefix from NODE_IP
-        local network_prefix="${NODE_IP%.*}"
-        
-        # Try to match MAC addresses with IPs
-        while read -r line; do
-            local mac_addr
-            mac_addr=$(echo "${line}" | awk '{print $1}')
-            if [ -n "${mac_addr}" ]; then
-                for i in $(seq 1 254); do
-                    local test_ip="${network_prefix}.${i}"
-                    if arping -I bat0 -c 2 -w 1 "${test_ip}" 2>/dev/null | grep -q "${mac_addr}"; then
-                        log "Found gateway at ${test_ip} (MAC: ${mac_addr})" >&2
-                        printf "%s" "${test_ip}"
-                        return 0
-                    fi
-                done
-            fi
-        done <<< "${batman_nodes}"
-    fi
     
     # Fallback: scan common IP ranges
     log "Scanning common IP ranges for gateways" >&2
@@ -275,14 +257,13 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
             # Set up routing with fallback
             if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 150; then
                 log "Failed to add primary route, attempting fallback configuration"
-                # Attempt to add a broader route
                 if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 200; then
                     error "Failed to configure any routing"
                 fi
             fi
             
-            # Monitor gateway status
-            (
+            # Monitor gateway status in background with proper process management
+            {
                 while true; do
                     sleep 30
                     if ! ping -c 1 -W 5 "${GATEWAY_IP}" >/dev/null 2>&1; then
@@ -295,7 +276,10 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
                         fi
                     fi
                 done
-            ) &
+            } </dev/null >/dev/null 2>&1 &
+            
+            # Store the monitoring process PID in a file for proper cleanup
+            echo $! > /var/run/mesh-network-monitor.pid
         else
             error "No valid gateway could be found"
         fi
@@ -327,3 +311,11 @@ if ! batctl loglevel "${BATMAN_LOG_LEVEL}"; then
 fi
 
 log "==== Mesh network configuration complete ===="
+
+# If running as a service, keep the script running to maintain the network
+if [ "${1}" = "service" ]; then
+    # Wait indefinitely while still responding to signals
+    while true; do
+        sleep 3600 & wait $!
+    done
+fi
