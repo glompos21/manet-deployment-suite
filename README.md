@@ -5,39 +5,15 @@
 - [What is a MANET?](#what-is-a-manet)
 - [Why Use This Guide?](#why-use-this-guide)
 - [Requirements](#requirements)
-- [Network Planning](#network-planning)
-  - [Interface Selection](#interface-selection)
-  - [Network Addressing](#network-addressing)
-- [Base System Setup](#base-system-setup)
-  - [User Account Setup](#1-user-account-setup)
-  - [Fresh Debian Installation](#2-fresh-debian-installation)
-  - [Load Batman-adv Module](#3-load-batman-adv-module)
-- [Basic Mesh Configuration](#basic-mesh-configuration)
-  - [Automated Setup Using Systemd Service](#automated-setup-using-systemd-service)
-  - [Manual Configuration](#manual-configuration)
-- [Network Routing Configuration](#network-routing-configuration)
-  - [Enable IP Forwarding](#1-enable-ip-forwarding)
-  - [Configure iptables for Network Routing](#2-configure-iptables-for-network-routing)
-  - [Access Point Configuration (Optional)](#3-access-point-configuration-optional)
-- [Configure dnsmasq for IP Address Leasing to Downstream Devices](#configure-dnsmasq-for-ip-address-leasing-to-downstream-devices)
-  - [Install dnsmasq](#1-install-dnsmasq)
-  - [Configure dnsmasq for the Access Point or LAN](#2-configure-dnsmasq-for-the-access-point-or-lan)
-  - [Example Configuration for Gateway Node](#example-configuration-for-gateway-node)
-  - [Example Configuration for Access Point Node](#example-configuration-for-access-point-node)
-  - [Restart dnsmasq](#3-restart-dnsmasq)
-  - [Verify Configuration](#4-verify-configuration)
-  - [Example: Configure LAN Interface](#example-configure-lan-interface)
-- [Troubleshooting](#troubleshooting)
-  - [Check Batman-adv Status](#1-check-batman-adv-status)
-  - [Debug Connectivity](#2-debug-connectivity)
-  - [Common Issues](#3-common-issues)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Node Configuration Types](#node-configuration-types)
+- [Service Operation](#service-operation)
+- [Interface Persistence](#interface-persistence)
+- [Common Issues and Solutions](#common-issues-and-solutions)
 - [Performance Optimization](#performance-optimization)
-  - [MTU Settings](#mtu-settings)
-  - [Channel Selection](#channel-selection)
 - [Security Considerations](#security-considerations)
 - [Monitoring and Maintenance](#monitoring-and-maintenance)
-  - [Basic Monitoring](#basic-monitoring)
-  - [Performance Testing](#performance-testing)
 - [References](#references)
 
 ## Introduction
@@ -60,508 +36,235 @@ If your team is looking to harness the capabilities of mobile ad-hoc networking 
 
 ## Requirements
 
-To set up an ad hoc mesh network, you will need some specific hardware. This tool is optimized for deployment on Debian-based Linux devices, so any hardware capable of running Debian (such as Raspberry Pi, Libre Computer, etc.) should suffice.
+To set up an ad hoc mesh network, you will need:
 
-In addition to the mainboard, each node must have at least **one WiFi radio**. Often, this will be the onboard WiFi chipset of the board itself. However, additional WiFi adapters can be utilized to provide an Access Point for users to access the network, though this is optional*.
+1. **Hardware Requirements**:
+   - Any device capable of running Debian Linux (Raspberry Pi, Libre Computer, etc.)
+   - At least one WiFi radio that supports ad-hoc mode
+   - Optional: Additional WiFi adapter or Ethernet port for internet gateway
+   - Optional: Additional WiFi adapter or Ethernet port for providing downstream access
 
-(*Note: While additional WiFi dongles may be used to provide a WiFi Access Point, enabling connectivity for end users, this is not strictly required.)
+2. **Software Requirements**:
+   - Debian-based Linux distribution
+   - Required packages (automatically installed during setup):
+     - batctl
+     - iw
+     - wireless-tools
+     - net-tools
+     - bridge-utils
+     - iptables
+     - dnsmasq
+     - hostapd
+     - arping
 
 ### Network Types
 
 Your mesh network can be configured in several ways:
 1. **Simple Mesh**: All nodes communicate directly
 2. **Gateway Mesh**: One node acts as an internet gateway
-3. **Access Point Mesh**: Nodes provide WiFi access points
+3. **Access Point Mesh**: Nodes provide WiFi or LAN access points
 4. **Hybrid Setup**: Combination of gateway and access points
 
-## Network Planning
+## Installation
 
-### Interface Selection
-
-Before beginning setup, identify your network interfaces and plan their roles:
-
-1. **List Available Interfaces**
-
-```bash
-# Show all network interfaces
-ip link show
-
-# Show wireless interfaces and capabilities
-iw dev
-```
-
-2. **Choose Mesh Interface**
-
-```bash
-# After identifying your wireless interface (e.g., wlan0, wlan1), set it as your mesh interface
-export MESH_IFACE="wlan0"  # Replace wlan0 with your chosen interface
-# Also do the following where applicable
-export AP_IFACE="wlan1"
-export WAN_IFACE="eth0"
-export LAN_IFACE="eth1"
-
-# Verify interface exists and is suitable
-iw dev $MESH_IFACE info  # Should show interface details
-```
-
-3. **Interface Role Planning**
-
-Each interface in your system needs a clear, dedicated role:
-- **Mesh Interface ($MESH_IFACE)**: Must support ad-hoc mode for mesh networking
-  - Usually a WiFi interface with good Linux driver support
-  - Check ad-hoc support: `iw dev $MESH_IFACE info | grep "supported interface modes"`
-- **Access Point Interface** (optional): Needs AP mode support
-  - Separate from mesh interface to avoid performance issues
-  - Check AP support: `iw list | grep "* AP"`
-- **WAN Interface** (optional): For internet gateway nodes
-  - Typically eth0 or a separate WiFi interface
-
-4. **Network Addressing**
-- Plan your IP ranges carefully:
-  - Mesh network (bat0): e.g., 10.10.0.0/16
-  - Access Points: e.g., 10.20.0.0/16 (note, each access point should be on a separate range to avoid IP conflicts between EUDs on different APs)
-  - Avoid conflicts with existing networks
-- Document your IP scheme for future reference
-- Leave room for network expansion
-
-## Base System Setup
-
-### 1. User Account Setup
-
-After installing Debian, create a non-root user account and configure sudo access:
-
-```bash
-# Create new user (replace username with desired name)
-adduser username
-
-# Install sudo if not already installed
-apt install sudo
-
-# Add user to sudo group
-usermod -aG sudo username
-
-# Switch to the new user
-su - username
-
-# Verify sudo access
-sudo whoami  # Should output "root"
-```
-
-### 2. Fresh Debian Installation
+### 1. Base System Preparation
 
 ```bash
 # Update system
 sudo apt update
-sudo apt upgrade
+sudo apt upgrade -y
 
-# Install essential packages
-sudo apt install -y \
-    batctl \
-    iw \
-    wireless-tools \
-    net-tools \
-    bridge-utils \
-    iptables   \
-    dnsmasq \
-    hostapd \
-    arping
+# Install git and clone repository
+sudo apt install git
+git clone [repository-url]
+cd [repository-name]
+
+# Run installation script
+sudo ./setup.sh
 ```
 
-### 3. Load Batman-adv Module
+### 2. Configuration
+
+The system uses a central configuration file at `/etc/mesh-network/mesh-config.conf`. Edit this file to define your node's role and behavior:
 
 ```bash
-# Load module
-sudo modprobe batman-adv
-
-# Make it permanent
-echo "batman-adv" | sudo tee -a /etc/modules
-```
-
-## Basic Mesh Configuration
-
-You can configure the mesh network either manually or using our automated systemd service.
-
-### Automated Setup Using Systemd Service
-
-The automated setup uses two key files:
-1. `mesh-network.service`: A systemd service that handles the mesh network configuration
-2. `mesh-config.conf`: A configuration file containing all mesh network parameters
-
-#### 1. Understanding mesh-config.conf
-
-The configuration file (`/etc/mesh-network/mesh-config.conf`) contains all the parameters needed to set up your mesh network. Here's a detailed explanation of each parameter:
-
-```conf
-# Network Interface Settings
-MESH_INTERFACE=wlan0         # The wireless interface to use for mesh networking
-MESH_MTU=1500               # Maximum Transmission Unit size*
-MESH_MODE=ad-hoc            # Wireless mode (must be ad-hoc for mesh)
-MESH_ESSID=mesh-network     # Network name (must be identical across all nodes)
-MESH_CHANNEL=1              # WiFi channel (1, 6, or 11 recommended)
-MESH_CELL_ID=02:12:34:56:78:9A  # Cell ID (BSSID) must be identical across all nodes
-
-# BATMAN-adv Settings
-BATMAN_ORIG_INTERVAL=1000   # Originator interval in milliseconds
-                             # Lower values = faster updates but more overhead
-BATMAN_GW_MODE=server      # Gateway mode: server (provides internet)
-                             # client (uses internet), or off
-
-# IP Configuration
-NODE_IP=10.0.0.1           # IP address for this node (unique per node)
-MESH_NETMASK=16            # Network mask (e.g., 24 for /24)
-ENABLE_ROUTING=1           # Enable IP forwarding (1=yes, 0=no)
-GATEWAY_IP=10.0.0.1        # IP address of gateway node (only required if ENABLE_ROUTING is set to 1)
-
-# Advanced Settings
-BATMAN_HOP_PENALTY=30      # Penalty for each hop (15-100, higher = less hops)
-BATMAN_LOG_LEVEL=batman         # Log level (0=none to 4=verbose)
-```
-Note: The actual mesh-config file should not contain comments. The template should be copied from the file in the config_tools/ folder.
-
-#### 2. Understanding mesh-network.service
-
-The systemd service (`/etc/systemd/system/mesh-network.service`) provides automated setup and teardown of the mesh network. Key features:
-
-- **Dependency Management**: Starts after network services are ready
-- **Pre-flight Checks**: Verifies all required tools and interfaces
-- **Comprehensive Setup**:
-  - Configures wireless interface in ad-hoc mode
-  - Sets up BATMAN-adv with specified parameters
-  - Configures IP addressing and routing
-  - Sets up firewall rules if routing is enabled
-
-#### 3. Installation and Setup
-
-1. **Create Configuration Directory and Files**
-```bash
-sudo mkdir -p /etc/mesh-network
-```
-
-2. **Configure Mesh Settings**
-Copy the example configuration and modify for your needs:
-```bash
-sudo cp config_tools/mesh-config.conf /etc/mesh-network/
 sudo nano /etc/mesh-network/mesh-config.conf
 ```
 
-3. **Install and Enable the Service**
-```bash
-# Copy service file
-sudo cp config_tools/mesh-network.service /etc/systemd/system/
-# Copy service executables
-sudo cp config_tools/mesh-network.sh /usr/sbin/
-sudo cp config_tools/mesh-network-stop.sh /usr/sbin/
-# Set permissions
-sudo chmod 644 /etc/systemd/system/mesh-network.service
-sudo chmod +x /usr/sbin/mesh-network.sh
-sudo chmod +x /usr/sbin/mesh-network-stop.sh
+#### Configuration Parameters
 
-# Enable and start the service
-sudo systemctl daemon-reload
-sudo systemctl enable mesh-network.service
-sudo systemctl start mesh-network.service
-```
-
-4. **Verify Service Status**
-```bash
-sudo systemctl status mesh-network.service
-```
-
-#### 4. Configuration Tips
-
-- **IP Addresses**: Each node must have a unique IP address in the same subnet
-- **Network Name**: The MESH_ESSID must be identical across all nodes
-- **Cell ID**: The MESH_CELL_ID (BSSID) must be identical across all nodes in the mesh network. This is a crucial parameter that ensures all nodes can identify and communicate with each other. The format must be a valid MAC address (e.g., 02:12:34:56:78:9A). The first byte (02) indicates a locally administered address.
-- **Channel Selection**: Use channels 1, 6, or 11 to avoid interference
-- **Gateway Mode**:
-  - Set BATMAN_GW_MODE="server" on nodes providing internet access
-  - Set BATMAN_GW_MODE="client" on nodes that should use internet access
-  - Set BATMAN_GW_MODE="off" for nodes that don't need internet connectivity
-- **Performance Tuning**:
-  - Adjust BATMAN_ORIG_INTERVAL based on network mobility
-  - Modify BATMAN_HOP_PENALTY to control route selection
-  - Set MTU based on your network requirements
-
-#### 5. Modifying Configuration
-
-To change settings:
-1. Edit `/etc/mesh-network/mesh-config.conf`
-2. Restart the service: `sudo systemctl restart mesh-network.service`
-
-### Manual Configuration
-
-```bash
-# Prevent network-manager from interacting with interface
-sudo nmcli device set $AP_IFACE managed no
-
-# Configure interface
-sudo ip link set $MESH_IFACE down
-sudo iwconfig $MESH_IFACE mode ad-hoc
-# Cell ID (BSSID) & name (ESSID) must be identical across all mesh nodes
-sudo iwconfig $MESH_IFACE essid "your-mesh-name"
-sudo iwconfig $MESH_IFACE ap 02:12:34:56:78:9A
-sudo iwconfig $MESH_IFACE channel 1
-sudo ip link set $MESH_IFACE up
-```
-
-### 2. Setup Batman-adv
-
-```bash
-# Add interface to batman-adv
-sudo batctl if add $MESH_IFACE
-
-# Bring up batman interface
-sudo ip link set up dev bat0
-
-# Configure IP (choose your network range)
-sudo ip addr add your.chosen.ip.address/netmask dev bat0
-```
-
-## Network Routing Configuration
-
-### 1. Enable IP Forwarding
-
-```bash
-# Enable IPv4 forwarding
-echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
-
-# Make it permanent
-echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
-sudo sysctl -p
-```
-
-### 2. Configure iptables for Network Routing
-
-#### Basic Routing Setup
-
-```bash
-# Clear existing rules
-sudo iptables -F
-sudo iptables -t nat -F
-sudo iptables -t mangle -F
-
-# Set default policies
-sudo iptables -P INPUT ACCEPT
-sudo iptables -P FORWARD ACCEPT
-sudo iptables -P OUTPUT ACCEPT
-
-# Enable routing between interfaces
-sudo iptables -A FORWARD -i bat0 -j ACCEPT
-sudo iptables -A FORWARD -o bat0 -j ACCEPT
-```
-
-#### For Gateway Nodes
-
-```bash
-# Allow forwarding between all relevant interfaces
-sudo iptables -A FORWARD -i bat0 -o $WAN_IFACE -j ACCEPT
-sudo iptables -A FORWARD -i $WAN_IFACE -o bat0 -j ACCEPT
-
-# Setup NAT for internet access
-sudo iptables -t nat -A POSTROUTING -o $WAN_IFACE -j MASQUERADE
-```
-
-#### For Access Point Nodes
-
-```bash
-# Allow forwarding between mesh and AP
-sudo iptables -A FORWARD -i bat0 -o $AP_IFACE -j ACCEPT
-sudo iptables -A FORWARD -i $AP_IFACE -o bat0 -j ACCEPT
-
-# NAT for AP clients (if needed)
-sudo iptables -t nat -A POSTROUTING -o bat0 -j MASQUERADE
-```
-
-#### Save iptables Rules
-
-```bash
-# Install iptables-persistent
-sudo apt install iptables-persistent -y
-
-# Save current rules
-sudo iptables-save | sudo tee /etc/iptables/rules.v4
-```
-
-### 3. Access Point Configuration (Optional)
-
-```bash
-# Install hostapd
-sudo apt install hostapd
-
-# Configure AP interface
-sudo ip link set $AP_IFACE up
-sudo ip addr add your.ap.ip.address/netmask dev $AP_IFACE
-```
-
-#### Create a configuration file 
-```bash
-sudo nano /etc/hostapd/hostapd.conf 
-```
 ```conf
-interface=AP_IFACE
+# Interface Definitions
+MESH_INTERFACE=wlan0    # Interface used for mesh networking
+AP_IFACE=wlan1         # Optional: Interface for WiFi access point
+WAN_IFACE=wlan2        # Optional: Interface for internet connection
+ETH_WAN=eth0          # Optional: Ethernet WAN interface
+ETH_LAN=eth1          # Optional: Ethernet LAN interface
+
+# Mesh Network Parameters
+MESH_MTU=1500
+MESH_MODE=ad-hoc
+MESH_ESSID=mesh-network    # Must be identical across all nodes
+MESH_CHANNEL=1            # Use 1, 6, or 11
+MESH_CELL_ID=02:12:34:56:78:9A  # Must be identical across all nodes
+
+# BATMAN-adv Configuration
+BATMAN_ORIG_INTERVAL=1000
+BATMAN_GW_MODE=server    # server=gateway, client=mesh node, off=standalone
+BATMAN_HOP_PENALTY=30
+BATMAN_LOG_LEVEL=batman
+
+# Network Configuration
+NODE_IP=10.0.0.1         # Unique for each node
+GATEWAY_IP=10.0.0.1      # IP of the gateway node
+MESH_NETMASK=16
+ENABLE_ROUTING=1         # Enable for gateway and AP nodes
+```
+
+## Node Configuration Types
+
+### 1. Gateway Node
+A gateway node provides internet access to the mesh network. Configure:
+
+```conf
+BATMAN_GW_MODE=server
+ENABLE_ROUTING=1
+```
+
+The service script will automatically:
+- Enable IP forwarding
+- Configure NAT for internet access
+- Set up appropriate routing between mesh and WAN interfaces
+- Configure firewall rules for secure routing
+
+### 2. Mesh Node
+A standard mesh node that routes traffic within the network. Configure:
+
+```conf
+BATMAN_GW_MODE=client
+ENABLE_ROUTING=1  # If providing AP or LAN access
+```
+
+The service script will:
+- Configure batman-adv for mesh participation
+- Set up routing if ENABLE_ROUTING=1
+- Detect and configure gateway routing
+
+### 3. Access Point Node
+A node that provides network access to end users. Requires additional configuration:
+
+1. **Assign Static IP to AP Interface**
+```bash
+sudo nano /etc/network/interfaces
+
+# Add configuration
+auto wlan1  # Replace with your AP_IFACE
+iface wlan1 inet static
+    address 10.20.0.1
+    netmask 255.255.255.0
+```
+
+2. **Configure hostapd**
+```bash
+sudo nano /etc/hostapd/hostapd.conf
+
+# Add configuration
+interface=wlan1  # Replace with your AP_IFACE
 driver=nl80211
 hw_mode=g
 ssid=your-ap-name
-channel=11
+channel=11  # Different from mesh channel
 wpa=2
 wpa_passphrase=your-secure-password
 wpa_key_mgmt=WPA-PSK
 ```
-note: channel must be different than the channel set for batman-mesh, either 1, 6, or 11. AP_IFACE must be actual name of the adapter, not the variable
-#### Link hostapd Configuration: 
-Point the hostapd service to your configuration file. Edit the hostapd default file:
+
+3. **Enable hostapd**
 ```bash
-sudo nano /etc/default/hostapd
-```
-Add or modify the line:
-```conf
-DAEMON_CONF="/etc/hostapd/hostapd.conf"
-```
-Unmask, enable, and restart hostapd
-```bash
-sudo systemctl unmask
-sudo systemctl restart hostapd
 sudo systemctl enable hostapd
+sudo systemctl start hostapd
 ```
-Check Status Verify that the hostapd service is running without errors:
+
+4. **Configure dnsmasq for DHCP**
 ```bash
-sudo systemctl status hostapd
+sudo nano /etc/dnsmasq.d/ap.conf
+
+# Add configuration
+interface=wlan1  # Replace with your AP_IFACE
+dhcp-range=10.20.0.50,10.20.0.150,24h
+dhcp-option=3,10.20.0.1
+dhcp-option=6,8.8.8.8,8.8.4.4
 ```
 
-## Configure dnsmasq for IP Address Leasing to Downstream Devices
+## Service Operation
 
-To enable each node to lease IP addresses to EUDs (either through its access point or LAN connection), you will use `dnsmasq`, a lightweight DHCP and DNS server. This is where network planning comes into play, each instance of dnsmasq needs to have its own IP range so that EUDs on different nodes do not have IP conflicts.
-
-### 1. Install dnsmasq
-
-Ensure `dnsmasq` is installed on your system:
-
-```bash
-sudo apt install dnsmasq
-```
-
-### 2. Configure dnsmasq for the Access Point or LAN
-
-Edit the `dnsmasq` configuration file to specify the parameters for your downstream network. You can edit the main configuration file or create a new one in `/etc/dnsmasq.d/` for clarity.
-
-Create a new file for configuration:
+The mesh network is managed through systemd:
 
 ```bash
-sudo nano /etc/dnsmasq.d/downstream.conf
+# Enable auto-start
+sudo systemctl enable mesh-network.service
+
+# Start the service
+sudo systemctl start mesh-network.service
+
+# Check status
+sudo systemctl status mesh-network.service
 ```
 
-Add the following configuration options, modifying as needed for your setup:
+### What the Service Does
 
-```conf
-# Interface to provide DHCP services
-interface=$AP_IFACE  # Replace $AP_IFACE with your Access Point or LAN interface name
+The service script (`mesh-network.sh`) automatically:
+1. Validates configuration parameters
+2. Configures wireless interfaces for mesh operation
+3. Sets up batman-adv
+4. Configures IP addressing and routing
+5. Sets up firewall rules based on node type
+6. Monitors gateway connectivity
+7. Handles service cleanup on shutdown
 
-# DHCP range for downstream devices
-# Set the IP range for the devices connecting to the Access Point
-# Example: 10.20.1.50 - 10.20.1.150 with a lease time of 24 hours
-dhcp-range=10.20.1.50,10.20.1.150,24h
+## Interface Persistence (Recommended for Multiple Adapters)
 
-# Gateway configuration
-# Set the gateway for the downstream devices to use (typically the node itself)
-dhcp-option=3,10.20.1.1  # Replace 10.20.1.1 with the IP of your AP interface
-
-# DNS server options
-# Set the DNS server for the downstream devices (can be the node or a public DNS)
-dhcp-option=6,9.9.9.9,8.8.8.8  # Quad9 DNS, google as backup, or use your own choice
-
-# Log DHCP leases (optional for debugging purposes)
-dhcp-leasefile=/var/lib/misc/dnsmasq.leases
-
-# Domain name for downstream devices (optional)
-domain=mesh.local
-```
-
-### 3. Restart dnsmasq
-
-After configuring `dnsmasq`, restart it to apply the changes:
+To maintain consistent interface names:
 
 ```bash
-sudo systemctl restart dnsmasq
+sudo nano /etc/systemd/network/10-wlan0.link
+
+[Match]
+MACAddress=xx:xx:xx:xx:xx:xx  # Replace with actual MAC
+
+[Link]
+Name=wlan0
 ```
 
-### 4. Verify Configuration
+## Common Issues and Solutions
 
-You can verify that `dnsmasq` is running and leasing IP addresses properly by checking its status and examining the lease file:
+1. **Missing Commands**
+   ```bash
+   # Add to ~/.bashrc
+   export PATH=$PATH:/sbin:/usr/sbin
+   ```
 
-```bash
-# Check dnsmasq status
-sudo systemctl status dnsmasq
+2. **Interface Name Changes**
+   - Use systemd-networkd link files as described above
 
-# View active DHCP leases
-cat /var/lib/misc/dnsmasq.leases
-```
+3. **DNSMasq Issues**
+   - Ensure interfaces have static IPs
+   - Check status: `sudo systemctl status dnsmasq`
 
-### Notes
+4. **NetworkManager Conflicts**
+   ```bash
+   # List connections
+   nmcli connection show
+   # Delete conflicting connections
+   nmcli connection delete "Connection Name"
+   ```
 
-- **Interface Selection**: Make sure the correct interface (`$AP_IFACE` or `$LAN_IFACE`) is configured. If you have both AP and LAN connections, you may need multiple `interface` entries or separate configuration files for each interface.
-- **Firewall Rules**: Ensure that your firewall rules allow DHCP traffic (typically UDP ports 67 and 68) on the interfaces where `dnsmasq` is providing services.
-- **Access Point Setup**: Ensure that your access point is configured properly and running, as downstream devices need to connect to it to get IP addresses from `dnsmasq`.
-
-### Example: Configure LAN Interface
-
-If you want to lease IPs to devices connected to a LAN port, you can set up `dnsmasq` similarly:
-
-```bash
-# Create a configuration for the LAN interface
-sudo nano /etc/dnsmasq.d/lan.conf
-```
-
-```conf
-# Interface to provide DHCP services for LAN
-interface=$LAN_IFACE  # Replace $LAN_IFACE with your LAN interface name
-
-# DHCP range for LAN devices
-dhcp-range=192.168.2.50,192.168.2.150,24h
-
-# Gateway and DNS settings
-dhcp-option=3,192.168.2.1
-```
-
-Restart `dnsmasq` after saving changes:
-
-```bash
-sudo systemctl restart dnsmasq
-```
-
-With these configurations, each node in your MANET can independently lease IP addresses to connected devices, ensuring seamless network expansion and connectivity for all downstream devices.
-
-## Troubleshooting
-
-### 1. Check Batman-adv Status
-
-```bash
-# View mesh interfaces
-sudo batctl if
-
-# Show neighbors
-sudo batctl n
-
-# View originator table
-sudo batctl o
-```
-
-### 2. Debug Connectivity
-
-```bash
-# Check routing
-ip route show
-sudo iptables -L -v -n
-
-# Test connectivity between interfaces
-ping -I bat0 target.ip.address
-```
-
-### 3. Common Issues
-
-- **Interface selection**: Verify interface capabilities with `iw list`
-- **Routing issues**: Check iptables rules and IP forwarding
-- **AP problems**: Verify interface supports AP mode
-- **Performance issues**: Check for interference, MTU settings
+5. **Gateway Routing Issues**
+   ```bash
+   # Adjust route metrics if needed
+   sudo ip route del default via 10.0.0.1 dev bat0
+   sudo ip route add default via 10.0.0.1 dev bat0 metric 200
+   ```
 
 ## Performance Optimization
 
