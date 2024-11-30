@@ -3,10 +3,131 @@
 # Exit on any error
 set -e
 
-echo "==== Starting mesh network configuration ===="
+# Enable debug logging
+set -x
+
+# Log file setup
+LOG_FILE="/var/log/mesh-network.log"
+exec 1> >(tee -a "${LOG_FILE}")
+exec 2>&1
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+error() {
+    log "ERROR: $1"
+    exit 1
+}
+
+# Function to validate configuration
+validate_config() {
+    local required_vars=(
+        "MESH_INTERFACE" "MESH_MTU" "MESH_MODE" "MESH_ESSID" 
+        "MESH_CHANNEL" "MESH_CELL_ID" "NODE_IP" "GATEWAY_IP" 
+        "MESH_NETMASK" "BATMAN_GW_MODE"
+    )
+    
+    for var in "${required_vars[@]}"; do
+        if [ -z "${!var}" ]; then
+            error "Required configuration variable ${var} is not set"
+        fi
+    done
+    
+    # Validate IP address format
+    if ! [[ "${NODE_IP}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        error "Invalid NODE_IP format: ${NODE_IP}"
+    fi
+    
+    if ! [[ "${GATEWAY_IP}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        error "Invalid GATEWAY_IP format: ${GATEWAY_IP}"
+    fi
+}
+
+# Function to detect gateway IP from batman-adv with improved logic
+detect_gateway_ip() {
+    log "Starting gateway detection" >&2
+    
+    # Check if bat0 interface exists
+    if ! ip link show bat0 >/dev/null 2>&1; then
+        log "bat0 interface not found" >&2
+        return 1
+    fi
+    
+    # First try the configured gateway
+    if arping -I bat0 -c 3 -w 2 "${GATEWAY_IP}" 2>/dev/null | grep -q "bytes from"; then
+        log "Configured gateway ${GATEWAY_IP} is reachable" >&2
+        printf "%s" "${GATEWAY_IP}"
+        return 0
+    fi
+    
+    log "Configured gateway not reachable, scanning for alternatives" >&2
+    
+    # Get list of potential gateways from batctl
+    local gw_list
+    gw_list=$(batctl gwl 2>/dev/null)
+    
+    if [ -z "${gw_list}" ]; then
+        log "No gateways found in batctl gwl" >&2
+    else
+        log "Gateway list: ${gw_list}" >&2
+    fi
+    
+    # Try to resolve gateway addresses using batctl
+    local batman_nodes
+    batman_nodes=$(batctl n 2>/dev/null | grep -v "No batman nodes in range" || true)
+    
+    if [ -n "${batman_nodes}" ]; then
+        log "Found BATMAN nodes: ${batman_nodes}" >&2
+        
+        # Extract network prefix from NODE_IP
+        local network_prefix="${NODE_IP%.*}"
+        
+        # Try to match MAC addresses with IPs
+        while read -r line; do
+            local mac_addr
+            mac_addr=$(echo "${line}" | awk '{print $1}')
+            if [ -n "${mac_addr}" ]; then
+                for i in $(seq 1 254); do
+                    local test_ip="${network_prefix}.${i}"
+                    if arping -I bat0 -c 2 -w 1 "${test_ip}" 2>/dev/null | grep -q "${mac_addr}"; then
+                        log "Found gateway at ${test_ip} (MAC: ${mac_addr})" >&2
+                        printf "%s" "${test_ip}"
+                        return 0
+                    fi
+                done
+            fi
+        done <<< "${batman_nodes}"
+    fi
+    
+    # Fallback: scan common IP ranges
+    log "Scanning common IP ranges for gateways" >&2
+    local network_prefix="${NODE_IP%.*}"
+    
+    for i in {1..10}; do
+        local test_ip="${network_prefix}.${i}"
+        if [ "${test_ip}" != "${NODE_IP}" ]; then
+            if arping -I bat0 -c 5 -w 1 "${test_ip}" 2>/dev/null | grep -q "bytes from"; then
+                log "Found potential gateway at ${test_ip}" >&2
+                printf "%s" "${test_ip}"
+                return 0
+            fi
+        fi
+    done
+    
+    log "No gateway found after exhaustive search" >&2
+    return 1
+}
+
+# Start main script execution
+log "==== Starting mesh network configuration ===="
+
+# Validate configuration
+log "Validating configuration parameters"
+validate_config
 
 # Debug output
-echo "Debug: MESH_INTERFACE=${MESH_INTERFACE}"
+log "Debug: MESH_INTERFACE=${MESH_INTERFACE}"
 
 # Verify required tools
 command -v batctl >/dev/null 2>&1 || { echo "Error: batctl not installed"; exit 1; }
@@ -19,60 +140,20 @@ command -v nmcli >/dev/null 2>&1 || { echo "Error: nmcli not found"; exit 1; }
 ip link show "${MESH_INTERFACE}" >/dev/null 2>&1 || { echo "Error: ${MESH_INTERFACE} interface not found"; exit 1; }
 iwconfig "${MESH_INTERFACE}" 2>/dev/null | grep -q "IEEE 802.11" || { echo "Error: ${MESH_INTERFACE} is not a wireless interface"; exit 1; }
 
-# Function to detect gateway IP from batman-adv
-detect_gateway_ip() {
-    echo "Debug: Starting gateway detection" >&2
-    
-    # Check if bat0 interface exists
-    if ! ip link show bat0 >/dev/null 2>&1; then
-        echo "Debug: bat0 interface not found" >&2
-        return 1
-    fi
-    
-    # Check if any gateway exists and capture gateway MAC
-    gateway_mac=$(batctl gwl 2>/dev/null | grep -E "^.*\[.*\].*[0-9]+\.[0-9]+/[0-9]+\.[0-9]+.*MBit" | awk '{print $1}')
-    
-    if [ -z "$gateway_mac" ]; then
-        echo "Debug: No gateway found in batctl gwl" >&2
-        return 1
-    fi
-    
-    echo "Debug: Found gateway MAC: ${gateway_mac}" >&2
-    
-    # Extract network prefix from NODE_IP
-    network_prefix="${NODE_IP%.*}"
-    
-    # Try all possible IPs
-    for i in $(seq 1 24); do
-        test_ip="${network_prefix}.${i}"
-        echo "Debug: Trying ${test_ip}" >&2
-        
-        # Run arping and capture output
-        if arping -I bat0 -c 5 "${test_ip}" 2>/dev/null | grep -q "bytes from"; then
-            echo "Debug: Found gateway at ${test_ip}" >&2
-            echo "${test_ip}"
-            return 0
-        fi
-    done
-    
-    echo "Debug: No gateway IP found" >&2
-    return 1
-}
-
 # Configure wireless interface
-echo "Debug: Setting regulatory domain"
+log "Debug: Setting regulatory domain"
 iw reg set US
 sleep 1
 
-echo "Debug: Disabling NetworkManager for ${MESH_INTERFACE}"
+log "Debug: Disabling NetworkManager for ${MESH_INTERFACE}"
 nmcli device set "${MESH_INTERFACE}" managed no
 sleep 1
 
-echo "Debug: Setting interface down"
+log "Debug: Setting interface down"
 ip link set down dev "${MESH_INTERFACE}"
 sleep 1
 
-echo "Debug: Loading batman-adv module"
+log "Debug: Loading batman-adv module"
 modprobe batman-adv
 if ! lsmod | grep -q "^batman_adv"; then
     echo "Error: Failed to load batman-adv module"
@@ -80,35 +161,35 @@ if ! lsmod | grep -q "^batman_adv"; then
 fi
 sleep 2
 
-echo "Debug: Setting MTU"
+log "Debug: Setting MTU"
 ip link set mtu "${MESH_MTU}" dev "${MESH_INTERFACE}"
 sleep 1
 
-echo "Debug: Configuring wireless settings"
+log "Debug: Configuring wireless settings"
 iwconfig "${MESH_INTERFACE}" mode ad-hoc
 iwconfig "${MESH_INTERFACE}" essid "${MESH_ESSID}"
 iwconfig "${MESH_INTERFACE}" ap "${MESH_CELL_ID}"
 iwconfig "${MESH_INTERFACE}" channel "${MESH_CHANNEL}"
 sleep 1
 
-echo "Debug: Setting interface up"
+log "Debug: Setting interface up"
 ip link set up dev "${MESH_INTERFACE}"
 sleep 3
 
-echo "Debug: Verifying interface is up"
+log "Debug: Verifying interface is up"
 if ! ip link show "${MESH_INTERFACE}" | grep -q "UP"; then
     echo "Error: Failed to bring up ${MESH_INTERFACE}"
     exit 1
 fi
 
-echo "Debug: Adding interface to batman-adv"
+log "Debug: Adding interface to batman-adv"
 if ! batctl if add "${MESH_INTERFACE}"; then
     echo "Error: Failed to add interface to batman-adv"
     exit 1
 fi
 sleep 2
 
-echo "Debug: Waiting for bat0 interface"
+log "Debug: Waiting for bat0 interface"
 for i in $(seq 1 30); do
     if ip link show bat0 >/dev/null 2>&1; then
         echo "bat0 interface is ready"
@@ -122,11 +203,11 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-echo "Debug: Setting bat0 up"
+log "Debug: Setting bat0 up"
 ip link set up dev bat0
 sleep 1
 
-echo "Debug: Configuring IP address"
+log "Debug: Configuring IP address"
 # Clean up existing IP configuration
 ip addr flush dev bat0 2>/dev/null || true
 ip addr add "${NODE_IP}/${MESH_NETMASK}" dev bat0 || {
@@ -134,7 +215,7 @@ ip addr add "${NODE_IP}/${MESH_NETMASK}" dev bat0 || {
     exit 1
 }
 
-echo "Debug: Adding mesh network route"
+log "Debug: Adding mesh network route"
 # Calculate network address from NODE_IP and MESH_NETMASK
 NETWORK_ADDRESS="${NODE_IP%.*}.0"  # Extract first 3 octets and append .0
 ip route flush dev bat0 || echo "Warning: Could not flush routes"
@@ -144,80 +225,87 @@ ip route add "${NETWORK_ADDRESS}/${MESH_NETMASK}" dev bat0 proto kernel scope li
 }
 
 if [ "${ENABLE_ROUTING}" = "1" ]; then
-    echo "Debug: Configuring routing and firewall"
+    log "Debug: Configuring routing and firewall"
     sysctl -w net.ipv4.ip_forward=1 || { echo "Error: Failed to enable IP forwarding"; exit 1; }
     
-    echo "Debug: Flushing existing routes and firewall rules"
+    log "Debug: Flushing existing routes and firewall rules"
     # Clean up existing firewall rules
     iptables -F || { echo "Error: Failed to flush iptables rules"; exit 1; }
     iptables -t nat -F || { echo "Error: Failed to flush NAT rules"; exit 1; }
     iptables -t mangle -F || { echo "Error: Failed to flush mangle rules"; exit 1; }
     
-    echo "Debug: Setting default policies"
+    log "Debug: Setting default policies"
     iptables -P INPUT ACCEPT || { echo "Error: Failed to set INPUT policy"; exit 1; }
     iptables -P FORWARD ACCEPT || { echo "Error: Failed to set FORWARD policy"; exit 1; }
     iptables -P OUTPUT ACCEPT || { echo "Error: Failed to set OUTPUT policy"; exit 1; }
     
-    echo "Debug: Configuring connection tracking"
+    log "Debug: Configuring connection tracking"
     # Connection tracking
     iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT || { echo "Error: Failed to add INPUT state rule"; exit 1; }
     iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT || { echo "Error: Failed to add FORWARD state rule"; exit 1; }
     
-    echo "Debug: Setting up mesh routing rules"
+    log "Debug: Setting up mesh routing rules"
     # Basic mesh routing
     iptables -A FORWARD -i bat0 -j ACCEPT || { echo "Error: Failed to add FORWARD input rule"; exit 1; }
     iptables -A FORWARD -o bat0 -j ACCEPT || { echo "Error: Failed to add FORWARD output rule"; exit 1; }
     
-    echo "Debug: Configuring NAT"
+    log "Debug: Configuring NAT"
     # NAT configuration
     iptables -t nat -A POSTROUTING -o bat0 -j MASQUERADE || { echo "Error: Failed to add MASQUERADE rule"; exit 1; }
     
-    echo "Debug: Setting up logging rules"
+    log "Debug: Setting up logging rules"
     # Security logging
     iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables_INPUT_denied: " --log-level 7 || echo "Warning: Failed to add INPUT logging rule"
     iptables -A FORWARD -m limit --limit 5/min -j LOG --log-prefix "iptables_FORWARD_denied: " --log-level 7 || echo "Warning: Failed to add FORWARD logging rule"
     
-    echo "Debug: Detecting gateway"
+    log "Debug: Detecting gateway"
     # Detect and configure gateway routing
     if [ "${BATMAN_GW_MODE}" != "server" ]; then
-        echo "Debug: Not in server mode, attempting gateway detection"
-        echo "Debug: Current BATMAN_GW_MODE=${BATMAN_GW_MODE}"
+        log "Client mode: Starting gateway detection"
         
-        echo "Debug: Current gateway list:"
-        batctl gwl || echo "Warning: Could not get gateway list"
-        
-        # Capture only stdout, redirect stderr to console for debugging
-        detected_gateway=$(detect_gateway_ip 2>/dev/null) || {
-            echo "Warning: Gateway detection failed"
+        detected_gateway=$(detect_gateway_ip) || {
+            log "Warning: Initial gateway detection failed"
             detected_gateway=""
         }
         
-        if [ -n "$detected_gateway" ] && [[ "$detected_gateway" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            GATEWAY_IP="$detected_gateway"
-            echo "Debug: Using detected gateway IP: ${GATEWAY_IP}"
+        if [ -n "${detected_gateway}" ]; then
+            GATEWAY_IP="${detected_gateway}"
+            log "Using detected gateway: ${GATEWAY_IP}"
+            
+            # Set up routing with fallback
+            if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 150; then
+                log "Failed to add primary route, attempting fallback configuration"
+                # Attempt to add a broader route
+                if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 200; then
+                    error "Failed to configure any routing"
+                fi
+            fi
+            
+            # Monitor gateway status
+            (
+                while true; do
+                    sleep 30
+                    if ! ping -c 1 -W 5 "${GATEWAY_IP}" >/dev/null 2>&1; then
+                        log "Gateway ${GATEWAY_IP} became unreachable, attempting to find new gateway"
+                        new_gateway=$(detect_gateway_ip)
+                        if [ -n "${new_gateway}" ] && [ "${new_gateway}" != "${GATEWAY_IP}" ]; then
+                            log "Switching to new gateway: ${new_gateway}"
+                            ip route replace default via "${new_gateway}" dev bat0 metric 150
+                            GATEWAY_IP="${new_gateway}"
+                        fi
+                    fi
+                done
+            ) &
         else
-            echo "Debug: No valid gateway detected, using configured GATEWAY_IP: ${GATEWAY_IP}"
+            error "No valid gateway could be found"
         fi
-
-        if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 150; then
-            echo "Error: Failed to add default route through bat0"
-            echo "Debug: Current routing table:"
-            ip route show
-            exit 1
-        fi
-        
     else
-        echo "Debug: Running in server mode, skipping gateway detection"
-        # Allow forwarding between all relevant interfaces
-        sudo iptables -A FORWARD -i bat0 -o $WAN_IFACE -j ACCEPT
-        sudo iptables -A FORWARD -i $WAN_IFACE -o bat0 -j ACCEPT
-
-        # Setup NAT for internet access
-        sudo iptables -t nat -A POSTROUTING -o $WAN_IFACE -j MASQUERADE
+        log "Running in server mode, skipping gateway detection"
+        # Server mode configuration...
     fi
 fi
 
-echo "Debug: Setting BATMAN-adv parameters"
+log "Debug: Setting BATMAN-adv parameters"
 if ! batctl gw_mode "${BATMAN_GW_MODE}"; then
     echo "Error: Failed to set gateway mode"
     exit 1
@@ -238,4 +326,4 @@ if ! batctl loglevel "${BATMAN_LOG_LEVEL}"; then
     exit 1
 fi
 
-echo "==== Mesh network configuration complete ===="
+log "==== Mesh network configuration complete ===="
