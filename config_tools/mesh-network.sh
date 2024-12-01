@@ -97,6 +97,13 @@ detect_gateway_ip() {
     
     log "Found batman-adv gateway MAC(s): ${gateway_macs}" >&2
     
+    # Try to populate ARP cache by pinging the broadcast address
+    log "Attempting to populate ARP cache..." >&2
+    ping -c 3 -b 10.0.0.255 >/dev/null 2>&1
+    
+    # Wait a moment for ARP cache to populate
+    sleep 2
+    
     # Get potential gateway IP from ARP cache
     local potential_ip
     potential_ip=$(arp -a | grep "bat0" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
@@ -137,7 +144,7 @@ detect_gateway_ip() {
         fi
     fi
     
-    log "No valid gateway found in ARP cache" >&2
+    log "No valid gateway found" >&2
     return 1
 }
 
@@ -520,7 +527,7 @@ setup_interface() {
             continue
         fi
         
-        # Configure wireless settings with proper delays
+        # Configure wireless settings
         iwconfig "${MESH_INTERFACE}" essid "${MESH_ESSID}"
         sleep 1
         iwconfig "${MESH_INTERFACE}" ap "${MESH_CELL_ID}"
