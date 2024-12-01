@@ -66,12 +66,9 @@ get_gateway_macs() {
     batctl gwl -n 2>/dev/null | grep -v "B.A.T.M.A.N." | grep "^*" | awk '{print $2}'
 }
 
-# Function to get MAC address from batctl ping
-get_batman_mac() {
-    local ip="$1"
-    local mac
-    mac=$(batctl ping -c1 "${ip}" 2>/dev/null | head -n1 | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | head -n1)
-    echo "${mac}"
+# Function to get client list from batman-adv
+get_batman_clients() {
+    batctl tg 2>/dev/null | grep -v "B.A.T.M.A.N." | awk '{print $1, $2}'
 }
 
 # Function to detect gateway IP
@@ -97,54 +94,74 @@ detect_gateway_ip() {
     
     log "Found batman-adv gateway MAC(s): ${gateway_macs}" >&2
     
-    # Try to populate ARP cache by pinging the broadcast address
-    log "Attempting to populate ARP cache..." >&2
-    ping -c 3 -b 10.0.0.255 >/dev/null 2>&1
+    # Calculate network address from NODE_IP and MESH_NETMASK
+    local network_addr="${NODE_IP%.*}.0"
     
-    # Wait a moment for ARP cache to populate
-    sleep 2
-    
-    # Get potential gateway IP from ARP cache
-    local potential_ip
-    potential_ip=$(arp -a | grep "bat0" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
-    
-    if [ -n "${potential_ip}" ]; then
-        log "Found potential gateway IP: ${potential_ip}" >&2
-        
-        # Verify this IP belongs to a batman-adv gateway
-        local batman_mac
-        batman_mac=$(get_batman_mac "${potential_ip}")
-        
-        if [ -n "${batman_mac}" ]; then
-            log "IP ${potential_ip} belongs to batman-adv node: ${batman_mac}" >&2
-            
-            # Check if this MAC is in our gateway list
-            if echo "${gateway_macs}" | grep -q "${batman_mac}"; then
-                log "Verified ${potential_ip} is a batman-adv gateway" >&2
-                
-                # Try multiple times to reach the gateway
-                local max_tries=3
-                local try=1
-                while [ $try -le $max_tries ]; do
-                    log "Attempt $try/$max_tries to reach gateway" >&2
-                    if ping -c 1 -W 2 "${potential_ip}" >/dev/null 2>&1; then
-                        log "Gateway ${potential_ip} is reachable" >&2
-                        printf "%s\n" "${potential_ip}"
-                        return 0
-                    fi
-                    try=$((try + 1))
-                    [ $try -le $max_tries ] && sleep 2
-                done
-                log "Gateway ${potential_ip} is not reachable after $max_tries attempts" >&2
-            else
-                log "IP ${potential_ip} is not a batman-adv gateway (MAC not in gateway list)" >&2
-            fi
-        else
-            log "Could not get batman-adv MAC for ${potential_ip}" >&2
-        fi
+    # Scan the network using arp-scan
+    log "Scanning network with arp-scan..." >&2
+    if ! command -v arp-scan >/dev/null 2>&1; then
+        log "ERROR: arp-scan is not installed" >&2
+        return 1
     fi
     
-    log "No valid gateway found" >&2
+    local scan_output
+    scan_output=$(sudo arp-scan --interface=bat0 --retry=1 "${network_addr}/24" 2>/dev/null) # on 24 netmask since scanning /16 crashes the host.
+    
+    if [ $? -ne 0 ]; then
+        log "arp-scan failed" >&2
+        return 1
+    fi
+    
+    log "arp-scan output: ${scan_output}" >&2
+    
+    # Extract IPs and MACs from scan output, skipping header and footer lines
+    local mesh_nodes
+    mesh_nodes=$(echo "${scan_output}" | grep -v "Interface:" | grep -v "Starting" | grep -v "packets" | grep -v "Ending" | grep -v "WARNING")
+    
+    if [ -z "${mesh_nodes}" ]; then
+        log "No nodes found by arp-scan" >&2
+        return 1
+    fi
+    
+    log "Found mesh nodes: ${mesh_nodes}" >&2
+    
+    # Process each discovered node
+    echo "${mesh_nodes}" | while read -r ip mac _; do
+        # Skip empty lines
+        [ -z "${ip}" ] && continue
+        
+        # Skip our own IP
+        [ "${ip}" = "${NODE_IP}" ] && continue
+        
+        log "Checking IP ${ip} (MAC: ${mac})" >&2
+        
+        # Get virtual MAC for this IP using batctl translate
+        local virtual_mac
+        virtual_mac=$(batctl translate "${ip}" 2>/dev/null | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | head -n1)
+        
+        if [ -n "${virtual_mac}" ]; then
+            log "IP ${ip} has virtual MAC: ${virtual_mac}" >&2
+            
+            # Check if this MAC matches any of our gateways
+            for gateway_mac in ${gateway_macs}; do
+                if [ "${virtual_mac}" = "${gateway_mac}" ]; then
+                    log "Found matching gateway! IP: ${ip}, MAC: ${virtual_mac}" >&2
+                    
+                    # Verify we can reach it with more lenient parameters
+                    if batctl ping -c 3 -t 5 "${ip}" >/dev/null 2>&1; then
+                        log "Gateway ${ip} is reachable" >&2
+                        printf "%s\n" "${ip}"
+                        return 0
+                    else
+                        log "Gateway ${ip} is not reachable via batctl ping" >&2
+                    fi
+                fi
+            done
+        else
+            log "Could not get virtual MAC for ${ip}" >&2
+        fi
+    done
+    
     return 1
 }
 
@@ -404,7 +421,7 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
             {
                 while true; do
                     sleep 30
-                    if ! ping -c 1 -W 5 "${GATEWAY_IP}" >/dev/null 2>&1; then
+                    if ! batctl ping -c 1 -t 5 "${GATEWAY_IP}" >/dev/null 2>&1; then
                         log "DEBUG: Gateway ${GATEWAY_IP} became unreachable, attempting to find new gateway"
                         new_gateway=$(detect_gateway_ip)
                         if [ -n "${new_gateway}" ] && [ "${new_gateway}" != "${GATEWAY_IP}" ]; then

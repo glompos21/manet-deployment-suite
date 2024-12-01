@@ -58,7 +58,7 @@ Common applications include:
 - Debian-based Linux distribution (Debian, Ubuntu, Raspberry Pi OS)
 - Required packages:
   ```bash
-  sudo apt install batctl iw wireless-tools net-tools bridge-utils iptables dnsmasq hostapd arping
+  sudo apt install batctl iw wireless-tools net-tools bridge-utils iptables dnsmasq hostapd arping arp-scan
   ```
 
 ### Network Planning
