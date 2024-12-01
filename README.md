@@ -54,12 +54,6 @@ Common applications include:
   - Power supply
   - SD card/storage
 
-- **Recommended**:
-  - Dual WiFi adapters (one for mesh, one for AP/client)
-  - Ethernet port for WAN connection
-  - External antenna for better range
-  - Weatherproof enclosure for outdoor deployment
-
 ### Software Requirements
 - Debian-based Linux distribution (Debian, Ubuntu, Raspberry Pi OS)
 - Required packages:
