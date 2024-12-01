@@ -63,7 +63,7 @@ validate_config() {
 # Function to get gateway MACs from batctl gwl
 get_gateway_macs() {
     # Get gateway list and filter out the header line and extract the Router MAC
-    batctl gwl 2>/dev/null | grep -v "B.A.T.M.A.N." | grep "^*" | awk '{print $2}'
+    batctl gwl -n 2>/dev/null | grep -v "B.A.T.M.A.N." | grep "^*" | awk '{print $2}'
 }
 
 # Function to get MAC address from batctl ping
