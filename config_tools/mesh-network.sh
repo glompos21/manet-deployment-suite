@@ -284,8 +284,60 @@ ip route add "${NETWORK_ADDRESS}/${MESH_NETMASK}" dev bat0 proto kernel scope li
     exit 1
 }
 
+# Add these variables near the top of the script, after the initial variable declarations
+VALID_WAN=""
+VALID_LAN=""
+
+# Modify the get_valid_interfaces function
+get_valid_interfaces() {
+    log "Validating network interfaces..."
+    
+    # Check WAN interfaces with more detailed validation
+    if ip link show "${WAN_IFACE}" >/dev/null 2>&1 && [ -n "${WAN_IFACE}" ]; then
+        VALID_WAN="${WAN_IFACE}"
+        log "Found WAN interface: ${VALID_WAN}"
+    elif ip link show "${ETH_WAN}" >/dev/null 2>&1 && [ -n "${ETH_WAN}" ]; then
+        VALID_WAN="${ETH_WAN}"
+        log "Found WAN interface: ${VALID_WAN}"
+    else
+        log "WARNING: No valid WAN interface found"
+    fi
+    
+    # Check LAN interfaces with more detailed validation
+    if ip link show "${ETH_LAN}" >/dev/null 2>&1 && [ -n "${ETH_LAN}" ]; then
+        VALID_LAN="${ETH_LAN}"
+        log "Found LAN interface: ${VALID_LAN}"
+    else
+        log "WARNING: No valid LAN interface found"
+    fi
+    
+    # Additional validation for server mode
+    if [ "${BATMAN_GW_MODE}" = "server" ]; then
+        if [ -z "${VALID_WAN}" ]; then
+            log "WARNING: Server mode with no WAN interface"
+        fi
+    fi
+}
+
 if [ "${ENABLE_ROUTING}" = "1" ]; then
     log "Debug: Configuring routing and firewall"
+    
+    # Validate interfaces first
+    get_valid_interfaces
+    
+    # Log interface status
+    if [ -n "${VALID_WAN}" ]; then
+        log "Debug: Using WAN interface: ${VALID_WAN}"
+    else
+        log "Debug: No WAN interface available"
+    fi
+    
+    if [ -n "${VALID_LAN}" ]; then
+        log "Debug: Using LAN interface: ${VALID_LAN}"
+    else
+        log "Debug: No LAN interface available"
+    fi
+    
     sysctl -w net.ipv4.ip_forward=1 || { echo "Error: Failed to enable IP forwarding"; exit 1; }
     
     log "Debug: Flushing existing routes and firewall rules"
@@ -366,8 +418,56 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
             # Don't exit here, just continue and the service will retry later
         fi
     else
-        log "Running in server mode, skipping gateway detection"
-        # Server mode configuration...
+        log "Running in server mode, configuring gateway rules"
+        
+        # Configure WAN interface rules
+        if [ -n "${VALID_WAN}" ]; then
+            log "Setting up gateway forwarding rules for WAN interface ${VALID_WAN}"
+            
+            if ! iptables -A FORWARD -i bat0 -o "${VALID_WAN}" -j ACCEPT; then
+                log "ERROR: Failed to add bat0 to WAN forwarding rule"
+                exit 1
+            fi
+            
+            if ! iptables -A FORWARD -i "${VALID_WAN}" -o bat0 -j ACCEPT; then
+                log "ERROR: Failed to add WAN to bat0 forwarding rule" 
+                exit 1
+            fi
+            
+            log "Setting up NAT for internet access"
+            if ! iptables -t nat -A POSTROUTING -o "${VALID_WAN}" -j MASQUERADE; then
+                log "ERROR: Failed to add NAT masquerade rule"
+                exit 1
+            fi
+        else
+            log "WARNING: No valid WAN interface found for server mode"
+        fi
+        
+        # Configure LAN interface rules if available
+        if [ -n "${VALID_LAN}" ]; then
+            log "Setting up LAN interface rules for ${VALID_LAN}"
+            
+            if ! iptables -A FORWARD -i "${VALID_LAN}" -o bat0 -j ACCEPT; then
+                log "ERROR: Failed to add LAN to bat0 forwarding rule"
+                exit 1
+            fi
+            
+            if ! iptables -A FORWARD -i bat0 -o "${VALID_LAN}" -j ACCEPT; then
+                log "ERROR: Failed to add bat0 to LAN forwarding rule"
+                exit 1
+            fi
+            
+            # Add NAT for LAN clients
+            if ! iptables -t nat -A POSTROUTING -s "${NETWORK_ADDRESS}/${MESH_NETMASK}" -o "${VALID_LAN}" -j MASQUERADE; then
+                log "ERROR: Failed to add LAN NAT masquerade rule"
+                exit 1
+            fi
+        fi
+        
+        # Add logging for debugging
+        log "DEBUG: Verifying iptables rules..."
+        iptables -L FORWARD -n -v
+        iptables -t nat -L POSTROUTING -n -v
     fi
 fi
 
