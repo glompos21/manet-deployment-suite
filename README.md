@@ -72,7 +72,7 @@ Your mesh network can be configured in several ways:
 ```bash
 # Update system
 sudo apt update
-sudo apt upgrade -y
+sudo apt upgrade
 
 # Install git and clone repository
 sudo apt install git
@@ -80,7 +80,7 @@ git clone [repository-url]
 cd [repository-name]
 
 # Run installation script
-sudo ./setup.sh
+./setup.sh
 ```
 
 ### 2. Configuration
@@ -88,7 +88,7 @@ sudo ./setup.sh
 The system uses a central configuration file at `/etc/mesh-network/mesh-config.conf`. Edit this file to define your node's role and behavior:
 
 ```bash
-sudo nano /etc/mesh-network/mesh-config.conf
+nano /etc/mesh-network/mesh-config.conf
 ```
 
 #### Configuration Parameters

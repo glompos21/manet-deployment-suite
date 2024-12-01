@@ -49,7 +49,7 @@ validate_config() {
     fi
 }
 
-# Function to detect gateway IP from batman-adv with improved logic
+# Function to detect gateway IP
 detect_gateway_ip() {
     log "Starting gateway detection" >&2
     
