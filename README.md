@@ -96,11 +96,11 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y git batctl iw wireless-tools net-tools bridge-utils iptables dnsmasq hostapd arping
 
 # Clone repository
-git clone https://github.com/yourusername/manet-deployment-suite.git
+git clone https://github.com/ifHoncho/mobile-ad-hoc-deployment-suite.git
 cd manet-deployment-suite
 
 # Install configuration files
-sudo ./install.sh
+sudo ./setup.sh
 ```
 
 ### 2. Initial Configuration
