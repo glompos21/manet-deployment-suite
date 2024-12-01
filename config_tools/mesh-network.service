@@ -7,7 +7,10 @@ Type=simple
 ExecStart=/usr/sbin/mesh-network.sh service
 ExecStop=/usr/sbin/mesh-network-stop.sh
 Restart=on-failure
-RestartSec=5
+RestartSec=30
+StartLimitIntervalSec=300
+StartLimitBurst=3
+RemainAfterExit=yes
 EnvironmentFile=/etc/mesh-network/mesh-config.conf
 
 [Install]

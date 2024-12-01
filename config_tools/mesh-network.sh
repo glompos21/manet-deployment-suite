@@ -1,7 +1,18 @@
 #!/bin/bash
 
-# Exit on any error
-set -e
+# Instead of set -e, we'll handle errors more gracefully
+set -o pipefail
+
+# Add timeout function
+timeout_exec() {
+    local timeout=$1
+    shift
+    local cmd="$@"
+    
+    ( $cmd ) & pid=$!
+    ( sleep $timeout && kill -HUP $pid ) 2>/dev/null & watcher=$!
+    wait $pid 2>/dev/null && pkill -HUP -P $watcher
+}
 
 # Check if running as a service
 if [ "${1}" = "service" ]; then
@@ -49,8 +60,23 @@ validate_config() {
     fi
 }
 
+# Function to get gateway MACs from batctl gwl
+get_gateway_macs() {
+    # Get gateway list and filter out the header line and extract the Router MAC
+    batctl gwl 2>/dev/null | grep -v "B.A.T.M.A.N." | grep "^*" | awk '{print $2}'
+}
+
+# Function to get MAC address from batctl ping
+get_batman_mac() {
+    local ip="$1"
+    local mac
+    mac=$(batctl ping -c1 "${ip}" 2>/dev/null | head -n1 | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | head -n1)
+    echo "${mac}"
+}
+
 # Function to detect gateway IP
 detect_gateway_ip() {
+    # Redirect debug output to stderr
     log "Starting gateway detection" >&2
     
     # Check if bat0 interface exists
@@ -59,45 +85,97 @@ detect_gateway_ip() {
         return 1
     fi
     
-    # First try the configured gateway
-    if arping -I bat0 -c 3 -w 2 "${GATEWAY_IP}" 2>/dev/null | grep -q "bytes from"; then
-        log "Configured gateway ${GATEWAY_IP} is reachable" >&2
-        printf "%s" "${GATEWAY_IP}"
+    # Get list of gateway MACs from batctl gwl
+    log "Getting list of batman-adv gateways" >&2
+    local gateway_macs
+    gateway_macs=$(get_gateway_macs)
+    
+    if [ -z "${gateway_macs}" ]; then
+        log "No batman-adv gateways found" >&2
+        return 1
+    fi
+    
+    log "Found batman-adv gateway MAC(s): ${gateway_macs}" >&2
+    
+    # Get potential gateway IP from ARP cache
+    local potential_ip
+    potential_ip=$(arp -a | grep "bat0" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+    
+    if [ -n "${potential_ip}" ]; then
+        log "Found potential gateway IP: ${potential_ip}" >&2
+        
+        # Verify this IP belongs to a batman-adv gateway
+        local batman_mac
+        batman_mac=$(get_batman_mac "${potential_ip}")
+        
+        if [ -n "${batman_mac}" ]; then
+            log "IP ${potential_ip} belongs to batman-adv node: ${batman_mac}" >&2
+            
+            # Check if this MAC is in our gateway list
+            if echo "${gateway_macs}" | grep -q "${batman_mac}"; then
+                log "Verified ${potential_ip} is a batman-adv gateway" >&2
+                
+                # Try multiple times to reach the gateway
+                local max_tries=3
+                local try=1
+                while [ $try -le $max_tries ]; do
+                    log "Attempt $try/$max_tries to reach gateway" >&2
+                    if ping -c 1 -W 2 "${potential_ip}" >/dev/null 2>&1; then
+                        log "Gateway ${potential_ip} is reachable" >&2
+                        printf "%s\n" "${potential_ip}"
+                        return 0
+                    fi
+                    try=$((try + 1))
+                    [ $try -le $max_tries ] && sleep 2
+                done
+                log "Gateway ${potential_ip} is not reachable after $max_tries attempts" >&2
+            else
+                log "IP ${potential_ip} is not a batman-adv gateway (MAC not in gateway list)" >&2
+            fi
+        else
+            log "Could not get batman-adv MAC for ${potential_ip}" >&2
+        fi
+    fi
+    
+    log "No valid gateway found in ARP cache" >&2
+    return 1
+}
+
+# Function to configure routing
+configure_routing() {
+    local gateway_ip="$1"
+    
+    # Validate input
+    if [ -z "${gateway_ip}" ] || ! [[ "${gateway_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        log "Invalid gateway IP: ${gateway_ip}"
+        return 1
+    fi
+    
+    log "Configuring routing for gateway ${gateway_ip}"
+    
+    # Check if the route already exists
+    if ip route show | grep -q "^default via ${gateway_ip}"; then
+        log "Route already exists"
         return 0
     fi
     
-    log "Configured gateway not reachable, scanning for alternatives" >&2
+    # Remove any existing default routes
+    ip route flush default 2>/dev/null || true
     
-    # Get list of potential gateways from batctl
-    local gw_list
-    gw_list=$(batctl gwl 2>/dev/null)
-    
-    if [ -z "${gw_list}" ]; then
-        log "No gateways found in batctl gwl" >&2
-    else
-        log "Gateway list: ${gw_list}" >&2
-    fi
-    
-    # Try to resolve gateway addresses using batctl
-    local batman_nodes
-    batman_nodes=$(batctl n 2>/dev/null | grep -v "No batman nodes in range" || true)
-    
-    # Fallback: scan common IP ranges
-    log "Scanning common IP ranges for gateways" >&2
-    local network_prefix="${NODE_IP%.*}"
-    
-    for i in {1..10}; do
-        local test_ip="${network_prefix}.${i}"
-        if [ "${test_ip}" != "${NODE_IP}" ]; then
-            if arping -I bat0 -c 5 -w 1 "${test_ip}" 2>/dev/null | grep -q "bytes from"; then
-                log "Found potential gateway at ${test_ip}" >&2
-                printf "%s" "${test_ip}"
-                return 0
-            fi
+    # Try multiple times to add the route
+    local max_tries=3
+    local try=1
+    while [ $try -le $max_tries ]; do
+        log "Attempt $try/$max_tries to add route"
+        if ip route add default via "${gateway_ip}" dev bat0; then
+            log "Successfully added default route via ${gateway_ip}"
+            return 0
         fi
+        try=$((try + 1))
+        [ $try -le $max_tries ] && sleep 2
     done
     
-    log "No gateway found after exhaustive search" >&2
+    log "Failed to add default route after $max_tries attempts"
     return 1
 }
 
@@ -246,19 +324,20 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
         log "Client mode: Starting gateway detection"
         
         detected_gateway=$(detect_gateway_ip) || {
-            log "Warning: Initial gateway detection failed"
+            log "DEBUG: Initial gateway detection failed, will retry later"
             detected_gateway=""
         }
         
         if [ -n "${detected_gateway}" ]; then
             GATEWAY_IP="${detected_gateway}"
-            log "Using detected gateway: ${GATEWAY_IP}"
+            log "DEBUG: Using detected gateway: ${GATEWAY_IP}"
             
             # Set up routing with fallback
             if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 150; then
-                log "Failed to add primary route, attempting fallback configuration"
+                log "DEBUG: Failed to add primary route, attempting fallback configuration"
                 if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 200; then
-                    error "Failed to configure any routing"
+                    log "DEBUG: Failed to configure any routing"
+                    # Don't exit here, just continue and retry later
                 fi
             fi
             
@@ -267,11 +346,13 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
                 while true; do
                     sleep 30
                     if ! ping -c 1 -W 5 "${GATEWAY_IP}" >/dev/null 2>&1; then
-                        log "Gateway ${GATEWAY_IP} became unreachable, attempting to find new gateway"
+                        log "DEBUG: Gateway ${GATEWAY_IP} became unreachable, attempting to find new gateway"
                         new_gateway=$(detect_gateway_ip)
                         if [ -n "${new_gateway}" ] && [ "${new_gateway}" != "${GATEWAY_IP}" ]; then
-                            log "Switching to new gateway: ${new_gateway}"
-                            ip route replace default via "${new_gateway}" dev bat0 metric 150
+                            log "DEBUG: Switching to new gateway: ${new_gateway}"
+                            ip route replace default via "${new_gateway}" dev bat0 metric 150 || {
+                                log "DEBUG: Failed to update route to new gateway"
+                            }
                             GATEWAY_IP="${new_gateway}"
                         fi
                     fi
@@ -281,7 +362,8 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
             # Store the monitoring process PID in a file for proper cleanup
             echo $! > /var/run/mesh-network-monitor.pid
         else
-            error "No valid gateway could be found"
+            log "DEBUG: No valid gateway found initially, continuing without gateway"
+            # Don't exit here, just continue and the service will retry later
         fi
     else
         log "Running in server mode, skipping gateway detection"
@@ -312,10 +394,124 @@ fi
 
 log "==== Mesh network configuration complete ===="
 
+# Improved interface setup with better error handling
+setup_interface() {
+    local max_retries=3
+    local retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        log "Attempting interface setup (attempt $((retry_count + 1))/${max_retries})"
+        
+        # Clean up any existing configuration
+        ip link set down dev "${MESH_INTERFACE}" 2>/dev/null || true
+        ip addr flush dev "${MESH_INTERFACE}" 2>/dev/null || true
+        
+        if ! timeout_exec 10 ip link set "${MESH_INTERFACE}" up; then
+            log "Failed to bring up interface, retrying..."
+            sleep 2
+            retry_count=$((retry_count + 1))
+            continue
+        fi
+        
+        if ! timeout_exec 5 iwconfig "${MESH_INTERFACE}" mode ad-hoc; then
+            log "Failed to set ad-hoc mode, retrying..."
+            sleep 2
+            retry_count=$((retry_count + 1))
+            continue
+        fi
+        
+        # Configure wireless settings with proper delays
+        iwconfig "${MESH_INTERFACE}" essid "${MESH_ESSID}"
+        sleep 1
+        iwconfig "${MESH_INTERFACE}" ap "${MESH_CELL_ID}"
+        sleep 1
+        iwconfig "${MESH_INTERFACE}" channel "${MESH_CHANNEL}"
+        sleep 2
+        
+        # Verify configuration
+        if iwconfig "${MESH_INTERFACE}" | grep -q "${MESH_ESSID}"; then
+            log "Interface setup successful"
+            return 0
+        fi
+        
+        retry_count=$((retry_count + 1))
+        sleep 2
+    done
+    
+    log "Failed to setup interface after ${max_retries} attempts"
+    return 1
+}
+
+# Improved main execution with proper cleanup
+cleanup() {
+    log "Cleaning up..."
+    if [ -f /var/run/mesh-network-monitor.pid ]; then
+        kill $(cat /var/run/mesh-network-monitor.pid) 2>/dev/null || true
+        rm -f /var/run/mesh-network-monitor.pid
+    fi
+}
+
+trap cleanup EXIT
+
+# Function to monitor gateway
+monitor_gateway() {
+    local current_gateway="$1"
+    local unreachable=true
+    
+    for i in {1..3}; do
+        if ping -c 1 -W 2 "${current_gateway}" >/dev/null 2>&1; then
+            unreachable=false
+            break
+        fi
+        sleep 2
+    done
+    
+    echo "${unreachable}"
+}
+
 # If running as a service, keep the script running to maintain the network
 if [ "${1}" = "service" ]; then
-    # Wait indefinitely while still responding to signals
+    # Simplified service monitoring
+    RETRY_INTERVAL=30  # Time between retries in seconds
+    
     while true; do
-        sleep 3600 & wait $!
+        # Check if bat0 interface is up
+        if ! ip link show bat0 >/dev/null 2>&1 || ! ip link show bat0 | grep -q "UP"; then
+            log "bat0 interface not ready or down, waiting..."
+            sleep "${RETRY_INTERVAL}"
+            continue
+        fi
+        
+        # Check if we need to configure a gateway
+        if ! ip route show | grep -q "^default"; then
+            log "No default route found, checking for gateway..."
+            gateway_ip=$(detect_gateway_ip)
+            
+            if [ -n "${gateway_ip}" ]; then
+                if configure_routing "${gateway_ip}"; then
+                    # Wait a moment to ensure route is stable
+                    sleep 2
+                    # Verify route was actually added
+                    if ! ip route show | grep -q "^default"; then
+                        log "Route verification failed, will retry"
+                        continue
+                    fi
+                fi
+            fi
+        else
+            # Passive monitoring - only check if current gateway is still valid
+            current_gateway=$(ip route show | grep "^default" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+            if [ -n "${current_gateway}" ]; then
+                # Check gateway reachability
+                unreachable=$(monitor_gateway "${current_gateway}")
+                
+                if [ "${unreachable}" = "true" ]; then
+                    log "Current gateway ${current_gateway} is unreachable after multiple attempts"
+                    ip route del default 2>/dev/null || true
+                fi
+            fi
+        fi
+        
+        sleep "${RETRY_INTERVAL}"
     done
 fi

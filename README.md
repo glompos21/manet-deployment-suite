@@ -9,191 +9,165 @@
 - [Configuration](#configuration)
 - [Node Configuration Types](#node-configuration-types)
 - [Service Operation](#service-operation)
-- [Interface Persistence](#interface-persistence)
-- [Common Issues and Solutions](#common-issues-and-solutions)
+- [Troubleshooting](#troubleshooting)
 - [Performance Optimization](#performance-optimization)
 - [Security Considerations](#security-considerations)
 - [Monitoring and Maintenance](#monitoring-and-maintenance)
+- [Advanced Topics](#advanced-topics)
 - [References](#references)
 
 ## Introduction
 
-The B.A.T.M.A.N. advanced (commonly referred to as batman-adv) is an implementation of the B.A.T.M.A.N. layer 2 routing protocol, integrated as a Linux kernel module. This repository aims to simplify the deployment of batman-adv, ensuring it is easy, efficient, and adaptable to various use cases.
+The B.A.T.M.A.N. advanced (batman-adv) is a layer 2 routing protocol implemented as a Linux kernel module, designed specifically for mobile ad-hoc networks. This repository provides a comprehensive suite of tools and configurations to simplify the deployment and management of batman-adv networks.
+
+### Key Features
+- Automatic gateway detection and configuration
+- Seamless failover between gateways
+- Support for multiple network topologies
+- Integrated monitoring and maintenance tools
+- Secure by default configuration
 
 ## What is a MANET?
 
-Mesh networking is not a novel concept. If you are in a public space or a large residence, there is a good chance that you are connected to a network through an access point that is part of a mesh. However, Mobile Ad Hoc Networking (MANET) brings unique possibilities, especially in highly dynamic environments. MANETs are increasingly finding critical applications in areas such as underground mining operations, emergency response systems, and specialized military communications. This has led to a rising awareness and use of the term "MANET" in both industrial and public domains.
+A Mobile Ad-Hoc Network (MANET) is a decentralized type of wireless network that doesn't rely on pre-existing infrastructure. Each node participates in routing by forwarding data to other nodes, and the determination of which nodes forward data is made dynamically based on network connectivity.
 
-As Cisco describes it:
+Key characteristics:
+- Self-forming and self-healing
+- No central infrastructure required
+- Dynamic routing based on network conditions
+- Peer-to-peer communication between nodes
 
-> "Mobile Ad Hoc Networks (MANETs) are an emerging type of wireless networking, in which mobile nodes associate on an extemporaneous or ad hoc basis. MANETs are both self-forming and self-healing, enabling peer-level communications between mobile nodes without reliance on centralized resources or fixed infrastructure.
->
-> These attributes enable MANETs to deliver significant benefits in virtually any scenario that includes a cadre of highly mobile users or platforms, a strong need to share IP-based information, and an environment in which fixed network infrastructure is impractical, impaired, or impossible. Key applications include disaster recovery, heavy construction, mining, transportation, defense, and special event management."
-
-## Why Use This Guide?
-
-If your team is looking to harness the capabilities of mobile ad-hoc networking without incurring the considerable expenses associated with commercial off-the-shelf solutions, this guide is for you. This tool is designed to assist you in building a MANET using easily accessible, consumer-grade hardware, even on a limited budget.
+Common applications include:
+- Emergency response and disaster recovery
+- Military tactical networks
+- Underground mining operations
+- Construction site communications
+- Temporary event networks
+- Remote area connectivity
 
 ## Requirements
 
-To set up an ad hoc mesh network, you will need:
+### Hardware Requirements
+- **Minimum**:
+  - Single-board computer (Raspberry Pi, Libre Computer, etc.)
+  - WiFi adapter supporting ad-hoc mode
+  - Power supply
+  - SD card/storage
 
-1. **Hardware Requirements**:
-   - Any device capable of running Debian Linux (Raspberry Pi, Libre Computer, etc.)
-   - At least one WiFi radio that supports ad-hoc mode
-   - Optional: Additional WiFi adapter or Ethernet port for internet gateway
-   - Optional: Additional WiFi adapter or Ethernet port for providing downstream access
+- **Recommended**:
+  - Dual WiFi adapters (one for mesh, one for AP/client)
+  - Ethernet port for WAN connection
+  - External antenna for better range
+  - Weatherproof enclosure for outdoor deployment
 
-2. **Software Requirements**:
-   - Debian-based Linux distribution
-   - Required packages (automatically installed during setup):
-     - batctl
-     - iw
-     - wireless-tools
-     - net-tools
-     - bridge-utils
-     - iptables
-     - dnsmasq
-     - hostapd
-     - arping
+### Software Requirements
+- Debian-based Linux distribution (Debian, Ubuntu, Raspberry Pi OS)
+- Required packages:
+  ```bash
+  sudo apt install batctl iw wireless-tools net-tools bridge-utils iptables dnsmasq hostapd arping
+  ```
 
-### Network Types
+### Network Planning
+Before deployment, consider:
+1. **Network Size**
+   - Number of nodes
+   - Expected coverage area
+   - User density
 
-Your mesh network can be configured in several ways:
-1. **Simple Mesh**: All nodes communicate directly
-2. **Gateway Mesh**: One node acts as an internet gateway
-3. **Access Point Mesh**: Nodes provide WiFi or LAN access points
-4. **Hybrid Setup**: Combination of gateway and access points
+2. **Topology**
+   - Simple mesh (all nodes equal)
+   - Gateway mesh (internet access)
+   - Access point mesh (client access)
+   - Hybrid setup
+
+3. **IP Addressing**
+   - Mesh network range (e.g., 10.0.0.0/16)
+   - AP network range (e.g., 10.20.0.0/24)
+   - WAN configuration
 
 ## Installation
 
-### 1. Base System Preparation
-
+### 1. System Preparation
 ```bash
 # Update system
-sudo apt update
-sudo apt upgrade
+sudo apt update && sudo apt upgrade -y
 
-# Install git and clone repository
-sudo apt install git
-git clone [repository-url]
-cd [repository-name]
+# Install dependencies
+sudo apt install -y git batctl iw wireless-tools net-tools bridge-utils iptables dnsmasq hostapd arping
 
-# Run installation script
-./setup.sh
+# Clone repository
+git clone https://github.com/yourusername/manet-deployment-suite.git
+cd manet-deployment-suite
+
+# Install configuration files
+sudo ./install.sh
 ```
 
-### 2. Configuration
+### 2. Initial Configuration
+1. Create configuration directory:
+   ```bash
+   sudo mkdir -p /etc/mesh-network
+   ```
 
-The system uses a central configuration file at `/etc/mesh-network/mesh-config.conf`. Edit this file to define your node's role and behavior:
+2. Copy and edit configuration:
+   ```bash
+   sudo cp config/mesh-config.conf.example /etc/mesh-network/mesh-config.conf
+   sudo nano /etc/mesh-network/mesh-config.conf
+   ```
+
+### 3. Service Installation
+```bash
+# Install service files
+sudo cp config_tools/mesh-network.service /etc/systemd/system/
+sudo cp config_tools/mesh-network.sh /usr/sbin/
+sudo cp config_tools/mesh-network-stop.sh /usr/sbin/
+
+# Set permissions
+sudo chmod +x /usr/sbin/mesh-network.sh
+sudo chmod +x /usr/sbin/mesh-network-stop.sh
+
+# Enable and start service
+sudo systemctl daemon-reload
+sudo systemctl enable mesh-network.service
+sudo systemctl start mesh-network.service
+```
+
+## Configuration
+
+### Basic Configuration
+Minimum required settings in `/etc/mesh-network/mesh-config.conf`:
 
 ```bash
-nano /etc/mesh-network/mesh-config.conf
+# Interface Configuration
+MESH_INTERFACE=wlan0          # Interface for mesh networking
+NODE_IP=10.0.0.x             # Unique for each node
+MESH_NETMASK=16              # Network mask (e.g., 16 for /16)
+
+# Mesh Parameters
+MESH_ESSID=mesh-network      # Network name (same for all nodes)
+MESH_CHANNEL=1               # WiFi channel (1, 6, or 11)
+MESH_CELL_ID=02:12:34:56:78:9A  # Cell ID (same for all nodes)
+
+# Batman-adv Settings
+BATMAN_GW_MODE=client        # client, server, or off
 ```
 
-#### Configuration Parameters
+### Advanced Configuration
+Optional settings for enhanced functionality:
 
-```conf
-# Interface Definitions
-MESH_INTERFACE=wlan0    # Interface used for mesh networking
-AP_IFACE=wlan1         # Optional: Interface for WiFi access point
-WAN_IFACE=wlan2        # Optional: Interface for internet connection
-ETH_WAN=eth0          # Optional: Ethernet WAN interface
-ETH_LAN=eth1          # Optional: Ethernet LAN interface
-
-# Mesh Network Parameters
-MESH_MTU=1500
-MESH_MODE=ad-hoc
-MESH_ESSID=mesh-network    # Must be identical across all nodes
-MESH_CHANNEL=1            # Use 1, 6, or 11
-MESH_CELL_ID=02:12:34:56:78:9A  # Must be identical across all nodes
-
-# BATMAN-adv Configuration
-BATMAN_ORIG_INTERVAL=1000
-BATMAN_GW_MODE=server    # server=gateway, client=mesh node, off=standalone
-BATMAN_HOP_PENALTY=30
-BATMAN_LOG_LEVEL=batman
-
-# Network Configuration
-NODE_IP=10.0.0.1         # Unique for each node
-GATEWAY_IP=10.0.0.1      # IP of the gateway node
-MESH_NETMASK=16
-ENABLE_ROUTING=1         # Enable for gateway and AP nodes
-```
-
-## Node Configuration Types
-
-### 1. Gateway Node
-A gateway node provides internet access to the mesh network. Configure:
-
-```conf
-BATMAN_GW_MODE=server
-ENABLE_ROUTING=1
-```
-
-The service script will automatically:
-- Enable IP forwarding
-- Configure NAT for internet access
-- Set up appropriate routing between mesh and WAN interfaces
-- Configure firewall rules for secure routing
-
-### 2. Mesh Node
-A standard mesh node that routes traffic within the network. Configure:
-
-```conf
-BATMAN_GW_MODE=client
-ENABLE_ROUTING=1  # If providing AP or LAN access
-```
-
-The service script will:
-- Configure batman-adv for mesh participation
-- Set up routing if ENABLE_ROUTING=1
-- Detect and configure gateway routing
-
-### 3. Access Point Node
-A node that provides network access to end users. Requires additional configuration:
-
-1. **Assign Static IP to AP Interface**
 ```bash
-sudo nano /etc/network/interfaces
+# Interface Options
+AP_IFACE=wlan1              # Access point interface
+WAN_IFACE=eth0              # WAN interface for gateway nodes
 
-# Add configuration
-auto wlan1  # Replace with your AP_IFACE
-iface wlan1 inet static
-    address 10.20.0.1
-    netmask 255.255.255.0
-```
+# Performance Tuning
+MESH_MTU=1500               # MTU size for mesh interface
+BATMAN_ORIG_INTERVAL=1000   # Originator interval (ms)
+BATMAN_HOP_PENALTY=30       # Hop penalty
+BATMAN_LOG_LEVEL=batman     # Logging level
 
-2. **Configure hostapd**
-```bash
-sudo nano /etc/hostapd/hostapd.conf
-
-# Add configuration
-interface=wlan1  # Replace with your AP_IFACE
-driver=nl80211
-hw_mode=g
-ssid=your-ap-name
-channel=11  # Different from mesh channel
-wpa=2
-wpa_passphrase=your-secure-password
-wpa_key_mgmt=WPA-PSK
-```
-
-3. **Enable hostapd**
-```bash
-sudo systemctl enable hostapd
-sudo systemctl start hostapd
-```
-
-4. **Configure dnsmasq for DHCP**
-```bash
-sudo nano /etc/dnsmasq.d/ap.conf
-
-# Add configuration
-interface=wlan1  # Replace with your AP_IFACE
-dhcp-range=10.20.0.50,10.20.0.150,24h
-dhcp-option=3,10.20.0.1
-dhcp-option=6,8.8.8.8,8.8.4.4
+# Routing Options
+ENABLE_ROUTING=1            # Enable routing/NAT
 ```
 
 ## Service Operation
@@ -211,117 +185,240 @@ sudo systemctl start mesh-network.service
 sudo systemctl status mesh-network.service
 ```
 
-### What the Service Does
+### Service Logging
+The service maintains detailed logs in multiple locations:
 
-The service script (`mesh-network.sh`) automatically:
-1. Validates configuration parameters
-2. Configures wireless interfaces for mesh operation
-3. Sets up batman-adv
-4. Configures IP addressing and routing
-5. Sets up firewall rules based on node type
-6. Monitors gateway connectivity
-7. Handles service cleanup on shutdown
-
-## Interface Persistence (Recommended for Multiple Adapters)
-
-To maintain consistent interface names:
-
-```bash
-sudo nano /etc/systemd/network/10-wlan0.link
-
-[Match]
-MACAddress=xx:xx:xx:xx:xx:xx  # Replace with actual MAC
-
-[Link]
-Name=wlan0
-```
-
-## Common Issues and Solutions
-
-1. **Missing Commands**
+1. **Main Service Log**:
    ```bash
-   # Add to ~/.bashrc
-   export PATH=$PATH:/sbin:/usr/sbin
+   # View mesh network service log
+   tail -f /var/log/mesh-network.log
+   
+   # View last 100 lines with timestamps
+   tail -n 100 /var/log/mesh-network.log
+   
+   # Search for specific events
+   grep "gateway" /var/log/mesh-network.log
+   grep "error" /var/log/mesh-network.log
    ```
 
-2. **Interface Name Changes**
-   - Use systemd-networkd link files as described above
-
-3. **DNSMasq Issues**
-   - Ensure interfaces have static IPs
-   - Check status: `sudo systemctl status dnsmasq`
-
-4. **NetworkManager Conflicts**
+2. **Systemd Journal**:
    ```bash
-   # List connections
-   nmcli connection show
-   # Delete conflicting connections
-   nmcli connection delete "Connection Name"
+   # Follow service logs in real-time
+   sudo journalctl -u mesh-network.service -f
+   
+   # View logs since last boot
+   sudo journalctl -u mesh-network.service -b
+   
+   # View logs with timestamps
+   sudo journalctl -u mesh-network.service --output=short-precise
    ```
 
-5. **Gateway Routing Issues**
+3. **System Logs**:
    ```bash
-   # Adjust route metrics if needed
-   sudo ip route del default via 10.0.0.1 dev bat0
-   sudo ip route add default via 10.0.0.1 dev bat0 metric 200
+   # Check kernel messages related to batman-adv
+   dmesg | grep batman
+   
+   # View system logs for network-related events
+   tail -f /var/log/syslog | grep -E "batman|mesh|wlan"
    ```
 
-## Performance Optimization
+### Log Analysis
+Important log entries to watch for:
 
-### MTU Settings
+1. **Gateway Detection**:
+   ```
+   [timestamp] Starting gateway detection
+   [timestamp] Found batman-adv gateway MAC: xx:xx:xx:xx:xx:xx
+   [timestamp] Verified x.x.x.x is a batman-adv gateway
+   ```
 
+2. **Route Configuration**:
+   ```
+   [timestamp] Configuring routing for gateway x.x.x.x
+   [timestamp] Successfully added default route via x.x.x.x
+   ```
+
+3. **Error Conditions**:
+   ```
+   [timestamp] Failed to add default route
+   [timestamp] Gateway unreachable after multiple attempts
+   [timestamp] Interface not ready or down
+   ```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Service Fails to Start**
+   ```bash
+   # Check service status
+   sudo systemctl status mesh-network.service
+   
+   # View detailed logs
+   sudo journalctl -u mesh-network.service -f
+   tail -f /var/log/mesh-network.log
+   
+   # Check for errors in system log
+   grep -i error /var/log/mesh-network.log
+   ```
+
+2. **No Gateway Connection**
+   ```bash
+   # Check batman-adv gateway list
+   sudo batctl gwl
+   
+   # Verify ARP entries
+   arp -a | grep bat0
+   
+   # Test gateway ping
+   sudo batctl ping <gateway-ip>
+   
+   # Check gateway detection logs
+   tail -f /var/log/mesh-network.log | grep -E "gateway|route"
+   ```
+
+3. **Interface Problems**
+   ```bash
+   # Check interface status
+   ip link show
+   iwconfig
+   
+   # Verify batman-adv is loaded
+   lsmod | grep batman
+   
+   # Check batman-adv interface
+   batctl if
+   
+   # Monitor interface-related logs
+   tail -f /var/log/mesh-network.log | grep -E "interface|wlan"
+   ```
+
+### Diagnostic Commands
 ```bash
-# Optimize MTU for mesh interface
-sudo ip link set $MESH_IFACE mtu 1532
+# Real-time log monitoring
+tail -f /var/log/mesh-network.log
+
+# Check batman-adv status
+sudo batctl o         # Originator table
+sudo batctl t        # Translation table
+sudo batctl d        # Debug log
+
+# Network diagnostics
+sudo iw dev          # Wireless interface info
+sudo iwconfig        # Wireless settings
+sudo iftop -i bat0   # Network traffic
+
+# System checks
+dmesg | grep batman  # Kernel messages
+sudo sysctl -a | grep batman  # Kernel parameters
 ```
 
-### Channel Selection
+## Advanced Topics
 
+### Custom Gateway Selection
+The system uses a sophisticated gateway selection process:
+1. Checks ARP cache for potential gateways
+2. Verifies gateway status using batman-adv
+3. Tests connectivity before configuring routes
+4. Monitors gateway health and performs failover
+
+### High Availability Setup
+For critical deployments:
+1. Configure multiple gateway nodes
+2. Set up redundant paths
+3. Implement monitoring and alerting
+4. Use automatic failover
+
+### Performance Tuning
 ```bash
-# Scan for least congested channel
-sudo iwlist $MESH_IFACE scan | grep -i channel
-```
+# Optimize batman-adv parameters
+sudo batctl hardif $MESH_INTERFACE gw_mode client
+sudo batctl hardif $MESH_INTERFACE orig_interval 1000
+sudo batctl hardif $MESH_INTERFACE hop_penalty 15
 
-## Security Considerations
-
-1. **Network Planning**
-   - Segment networks appropriately
-   - Use private IP ranges
-   - Plan firewall rules carefully
-
-2. **Firewall Configuration**
-   - Restrict access between segments as needed
-   - Consider implementing connection tracking
-   - Log suspicious activities
-
-## Monitoring and Maintenance
-
-### Basic Monitoring
-
-```bash
-# Check mesh status
-sudo batctl n
-sudo batctl o
-
-# Monitor traffic
-sudo iftop -i bat0
-```
-
-### Performance Testing
-
-```bash
-# Install iperf3
-sudo apt install iperf3
-
-# Test throughput between nodes
-iperf3 -s  # on server
-iperf3 -c target.ip.address  # on client
+# Network interface tuning
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo sysctl -w net.core.rmem_max=16777216
+sudo sysctl -w net.core.wmem_max=16777216
 ```
 
 ## References
 
-- [Batman-adv Wiki](https://www.open-mesh.org/projects/batman-adv/wiki)
-- [Linux Wireless Documentation](https://wireless.wiki.kernel.org/)
-- [Debian Network Configuration](https://wiki.debian.org/NetworkConfiguration)
-- [Netfilter/iptables Documentation](https://netfilter.org/documentation/)
+- [Batman-adv Documentation](https://www.open-mesh.org/projects/batman-adv/wiki)
+- [Linux Wireless](https://wireless.wiki.kernel.org/)
+- [Netfilter/iptables](https://netfilter.org/documentation/)
+- [IEEE 802.11s Mesh Networking](https://ieeexplore.ieee.org/document/5167291)
+
+## Monitoring and Maintenance
+
+### Log Monitoring
+Regular log monitoring is essential for maintaining mesh network health:
+
+1. **Automated Log Checking**:
+   ```bash
+   # Create a simple log monitor
+   watch -n 10 'tail -n 20 /var/log/mesh-network.log'
+   
+   # Monitor specific events
+   tail -f /var/log/mesh-network.log | grep --color=auto -E 'error|warning|gateway|route'
+   ```
+
+2. **Log Rotation**:
+   The service automatically rotates logs to prevent disk space issues. Old logs are stored as:
+   ```
+   /var/log/mesh-network.log.1
+   /var/log/mesh-network.log.2.gz
+   /var/log/mesh-network.log.3.gz
+   ```
+
+3. **Log Analysis Tools**:
+   ```bash
+   # Count occurrences of specific events
+   grep -c "gateway" /var/log/mesh-network.log
+   
+   # View unique gateway IPs
+   grep "gateway" /var/log/mesh-network.log | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | sort -u
+   
+   # Check for common errors
+   grep -i error /var/log/mesh-network.log | sort | uniq -c
+   ```
+
+### Performance Monitoring
+Monitor network performance using various tools:
+
+1. **Traffic Analysis**:
+   ```bash
+   # Monitor interface traffic
+   sudo iftop -i bat0
+   
+   # View bandwidth usage
+   sudo nethogs bat0
+   
+   # Check interface statistics
+   cat /sys/class/net/bat0/statistics/*
+   ```
+
+2. **Gateway Status**:
+   ```bash
+   # Check current gateway
+   ip route show | grep default
+   
+   # Monitor gateway changes
+   tail -f /var/log/mesh-network.log | grep "gateway"
+   
+   # View gateway list
+   sudo batctl gwl
+   ```
+
+3. **Node Status**:
+   ```bash
+   # View originator table
+   sudo batctl o
+   
+   # Check translation table
+   sudo batctl t
+   
+   # Monitor debug log
+   sudo batctl d
+   ```
 
