@@ -105,7 +105,7 @@ sudo ./setup.sh
 
 2. Copy and edit configuration:
    ```bash
-   sudo cp config/mesh-config.conf.example /etc/mesh-network/mesh-config.conf
+   sudo cp config_tools/mesh-config.conf /etc/mesh-network/mesh-config.conf
    sudo nano /etc/mesh-network/mesh-config.conf
    ```
 
