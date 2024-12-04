@@ -41,7 +41,7 @@ validate_config() {
     local required_vars=(
         "MESH_INTERFACE" "MESH_MTU" "MESH_MODE" "MESH_ESSID" 
         "MESH_CHANNEL" "MESH_CELL_ID" "NODE_IP" "GATEWAY_IP" 
-        "MESH_NETMASK" "BATMAN_GW_MODE"
+        "MESH_NETMASK" "BATMAN_GW_MODE" "BATMAN_ROUTING_ALGORITHM"
     )
     
     for var in "${required_vars[@]}"; do
@@ -49,6 +49,11 @@ validate_config() {
             error "Required configuration variable ${var} is not set"
         fi
     done
+    
+    # Validate routing algorithm
+    if [ "${BATMAN_ROUTING_ALGORITHM}" != "BATMAN_IV" ] && [ "${BATMAN_ROUTING_ALGORITHM}" != "BATMAN_V" ]; then
+        error "Invalid BATMAN_ROUTING_ALGORITHM: ${BATMAN_ROUTING_ALGORITHM}. Must be either BATMAN_IV or BATMAN_V"
+    fi
     
     # Validate IP address format
     if ! [[ "${NODE_IP}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -244,6 +249,13 @@ if ! lsmod | grep -q "^batman_adv"; then
     exit 1
 fi
 sleep 2
+
+log "Debug: Setting routing algorithm to ${BATMAN_ROUTING_ALGORITHM}"
+if ! batctl ra "${BATMAN_ROUTING_ALGORITHM}"; then
+    echo "Error: Failed to set routing algorithm to ${BATMAN_ROUTING_ALGORITHM}"
+    exit 1
+fi
+sleep 1
 
 log "Debug: Setting MTU"
 ip link set mtu "${MESH_MTU}" dev "${MESH_INTERFACE}"
@@ -511,10 +523,10 @@ if ! batctl hop_penalty "${BATMAN_HOP_PENALTY}"; then
     exit 1
 fi
 
-if ! batctl loglevel "${BATMAN_LOG_LEVEL}"; then
-    echo "Error: Failed to set log level"
-    exit 1
-fi
+# if ! batctl bat0 loglevel "${BATMAN_LOG_LEVEL}"; then
+#     echo "Error: Failed to set log level"
+#     exit 1
+# fi
 
 log "==== Mesh network configuration complete ===="
 
