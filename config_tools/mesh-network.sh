@@ -36,6 +36,89 @@ error() {
     exit 1
 }
 
+# Translation table configuration
+TRANSLATION_TABLE_FILE="/var/lib/batman-adv/translation_table.db"
+TRANSLATION_TABLE_MAX_AGE=3600  # Maximum age of entries in seconds (1 hour)
+
+# Initialize translation table
+init_translation_table() {
+    # Create directory with sudo if it doesn't exist
+    sudo mkdir -p "$(dirname "${TRANSLATION_TABLE_FILE}")" 2>/dev/null || true
+    
+    # Create file with sudo if it doesn't exist and set permissions
+    if [ ! -f "${TRANSLATION_TABLE_FILE}" ]; then
+        sudo touch "${TRANSLATION_TABLE_FILE}" 2>/dev/null || true
+        sudo chmod 666 "${TRANSLATION_TABLE_FILE}" 2>/dev/null || true
+    fi
+    
+    # Verify we can write to the file
+    if [ ! -w "${TRANSLATION_TABLE_FILE}" ]; then
+        log "Warning: Cannot write to translation table file"
+        return 1
+    fi
+}
+
+# Add or update entry in translation table
+# Format: timestamp|ip|bat0_mac|hw_mac
+update_translation_entry() {
+    local ip="$1"
+    local bat0_mac="$2"
+    local hw_mac="$3"
+    local timestamp
+    timestamp=$(date +%s)
+    
+    # Remove existing entry for this IP
+    sed -i "/${ip}|/d" "${TRANSLATION_TABLE_FILE}" 2>/dev/null
+    
+    # Add new entry
+    echo "${timestamp}|${ip}|${bat0_mac}|${hw_mac}" >> "${TRANSLATION_TABLE_FILE}"
+}
+
+# Look up entry in translation table
+# Returns: bat0_mac if found and not expired, empty string otherwise
+lookup_translation_entry() {
+    local ip="$1"
+    local current_time
+    current_time=$(date +%s)
+    
+    while IFS='|' read -r timestamp entry_ip bat0_mac hw_mac; do
+        # Skip empty lines
+        [ -z "${timestamp}" ] && continue
+        
+        # Check if entry matches IP and is not expired
+        if [ "${entry_ip}" = "${ip}" ]; then
+            local age=$((current_time - timestamp))
+            if [ ${age} -le ${TRANSLATION_TABLE_MAX_AGE} ]; then
+                echo "${bat0_mac}"
+                return 0
+            fi
+        fi
+    done < "${TRANSLATION_TABLE_FILE}"
+    
+    echo ""
+    return 1
+}
+
+# Clean expired entries from translation table
+clean_translation_table() {
+    local current_time
+    current_time=$(date +%s)
+    local temp_file
+    temp_file=$(mktemp)
+    
+    while IFS='|' read -r timestamp ip bat0_mac hw_mac; do
+        # Skip empty lines
+        [ -z "${timestamp}" ] && continue
+        
+        local age=$((current_time - timestamp))
+        if [ ${age} -le ${TRANSLATION_TABLE_MAX_AGE} ]; then
+            echo "${timestamp}|${ip}|${bat0_mac}|${hw_mac}" >> "${temp_file}"
+        fi
+    done < "${TRANSLATION_TABLE_FILE}"
+    
+    mv "${temp_file}" "${TRANSLATION_TABLE_FILE}"
+}
+
 # Function to validate configuration
 validate_config() {
     local required_vars=(
@@ -76,6 +159,63 @@ get_batman_clients() {
     batctl tg 2>/dev/null | grep -v "B.A.T.M.A.N." | awk '{print $1, $2}'
 }
 
+# Function to check if a gateway MAC is still available via batctl gwl
+is_gateway_available() {
+    local gateway_mac="$1"
+    
+    # If we're in server mode, we're always available as our own gateway
+    if [ "${BATMAN_GW_MODE}" = "server" ]; then
+        # Get our own bat0 MAC
+        local our_mac
+        our_mac=$(batctl meshif bat0 interface show 2>/dev/null | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | head -n1)
+        
+        # If this is checking our own MAC, return true
+        if [ "${gateway_mac}" = "${our_mac}" ]; then
+            return 0
+        fi
+    fi
+    
+    # For client mode or other gateways in server mode, check batctl gwl
+    batctl gwl -n 2>/dev/null | grep -q "^*.*${gateway_mac}"
+}
+
+# Function to monitor gateway
+monitor_gateway() {
+    local current_gateway="$1"
+    
+    # Initialize translation table if needed
+    init_translation_table || return 0
+    
+    # If we're in server mode and this is our IP, we're always available
+    if [ "${BATMAN_GW_MODE}" = "server" ] && [ "${current_gateway}" = "${NODE_IP}" ]; then
+        echo "false"  # Not unreachable
+        return
+    fi
+    
+    # Get the batman-adv MAC for this gateway from our translation table
+    local bat0_mac=""
+    if [ -f "${TRANSLATION_TABLE_FILE}" ]; then
+        while IFS='|' read -r timestamp ip bat0_mac hw_mac; do
+            if [ "${ip}" = "${current_gateway}" ]; then
+                bat0_mac="${bat0_mac}"
+                break
+            fi
+        done < "${TRANSLATION_TABLE_FILE}"
+    fi
+    
+    # If we don't have the MAC in our table, try to get it
+    if [ -z "${bat0_mac}" ]; then
+        bat0_mac=$(batctl translate "${current_gateway}" 2>/dev/null | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | head -n1)
+    fi
+    
+    # Check if the gateway is still available
+    if [ -n "${bat0_mac}" ] && is_gateway_available "${bat0_mac}"; then
+        echo "false"  # Not unreachable
+    else
+        echo "true"  # Unreachable
+    fi
+}
+
 # Function to detect gateway IP
 detect_gateway_ip() {
     # Redirect debug output to stderr
@@ -85,6 +225,13 @@ detect_gateway_ip() {
     if ! ip link show bat0 >/dev/null 2>&1; then
         log "bat0 interface not found" >&2
         return 1
+    fi
+    
+    # If we're in server mode, we are our own gateway
+    if [ "${BATMAN_GW_MODE}" = "server" ]; then
+        log "Running in server mode, using own IP as gateway" >&2
+        echo "${NODE_IP}"
+        return 0
     fi
     
     # Get list of gateway MACs from batctl gwl
@@ -98,6 +245,36 @@ detect_gateway_ip() {
     fi
     
     log "Found batman-adv gateway MAC(s): ${gateway_macs}" >&2
+
+    # Initialize translation table if needed
+    init_translation_table
+
+    # Clean expired entries from translation table
+    clean_translation_table
+    
+    # First try to find gateway using translation table
+    for gateway_mac in ${gateway_macs}; do
+        # Search translation table for any IP that maps to this gateway MAC
+        while IFS='|' read -r timestamp ip bat0_mac hw_mac; do
+            # Skip empty lines
+            [ -z "${timestamp}" ] && continue
+            
+            if [ "${bat0_mac}" = "${gateway_mac}" ]; then
+                log "Found gateway in translation table: ${ip} (MAC: ${bat0_mac})" >&2
+                
+                # Verify gateway is still available
+                if is_gateway_available "${bat0_mac}"; then
+                    log "Gateway ${ip} is available" >&2
+                    echo "${ip}"
+                    return 0
+                else
+                    log "Gateway ${ip} from translation table is no longer available" >&2
+                fi
+            fi
+        done < "${TRANSLATION_TABLE_FILE}"
+    done
+    
+    log "No valid gateway found in translation table, performing network scan" >&2
     
     # Calculate network address from NODE_IP and MESH_NETMASK
     local network_addr="${NODE_IP%.*}.0"
@@ -110,7 +287,7 @@ detect_gateway_ip() {
     fi
     
     local scan_output
-    scan_output=$(sudo arp-scan --interface=bat0 --retry=1 "${network_addr}/24" 2>/dev/null) # on 24 netmask since scanning /16 crashes the host.
+    scan_output=$(sudo arp-scan --interface=bat0 --retry=1 "${network_addr}/${MESH_NETMASK}" 2>/dev/null)
     
     if [ $? -ne 0 ]; then
         log "arp-scan failed" >&2
@@ -131,14 +308,14 @@ detect_gateway_ip() {
     log "Found mesh nodes: ${mesh_nodes}" >&2
     
     # Process each discovered node
-    echo "${mesh_nodes}" | while read -r ip mac _; do
+    echo "${mesh_nodes}" | while read -r ip hw_mac _; do
         # Skip empty lines
         [ -z "${ip}" ] && continue
         
         # Skip our own IP
         [ "${ip}" = "${NODE_IP}" ] && continue
         
-        log "Checking IP ${ip} (MAC: ${mac})" >&2
+        log "Checking IP ${ip} (MAC: ${hw_mac})" >&2
         
         # Get virtual MAC for this IP using batctl translate
         local virtual_mac
@@ -147,18 +324,21 @@ detect_gateway_ip() {
         if [ -n "${virtual_mac}" ]; then
             log "IP ${ip} has virtual MAC: ${virtual_mac}" >&2
             
+            # Update translation table with this mapping
+            update_translation_entry "${ip}" "${virtual_mac}" "${hw_mac}"
+            
             # Check if this MAC matches any of our gateways
             for gateway_mac in ${gateway_macs}; do
                 if [ "${virtual_mac}" = "${gateway_mac}" ]; then
                     log "Found matching gateway! IP: ${ip}, MAC: ${virtual_mac}" >&2
                     
-                    # Verify we can reach it with more lenient parameters
-                    if batctl ping -c 3 -t 5 "${ip}" >/dev/null 2>&1; then
-                        log "Gateway ${ip} is reachable" >&2
+                    # Verify gateway is still available
+                    if is_gateway_available "${virtual_mac}"; then
+                        log "Gateway ${ip} is available" >&2
                         printf "%s\n" "${ip}"
                         return 0
                     else
-                        log "Gateway ${ip} is not reachable via batctl ping" >&2
+                        log "Gateway ${ip} is not available in batman-adv" >&2
                     fi
                 fi
             done
@@ -182,30 +362,25 @@ configure_routing() {
     
     log "Configuring routing for gateway ${gateway_ip}"
     
-    # Check if the route already exists
-    if ip route show | grep -q "^default via ${gateway_ip}"; then
-        log "Route already exists"
+    # For server mode, we are the gateway
+    if [ "${BATMAN_GW_MODE}" = "server" ] && [ -n "${VALID_WAN}" ]; then
+        log "Server mode: Setting up routing through ${VALID_WAN}"
+        
+        # Set up NAT and routing through WAN interface
+        iptables -t nat -A POSTROUTING -o "${VALID_WAN}" -j MASQUERADE
+        iptables -A FORWARD -i bat0 -o "${VALID_WAN}" -j ACCEPT
+        iptables -A FORWARD -i "${VALID_WAN}" -o bat0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+        
+        # Don't touch the default route, let DHCP handle it
         return 0
     fi
     
+    # For client mode
+    log "Setting up default route via ${gateway_ip}"
     # Remove any existing default routes
-    ip route flush default 2>/dev/null || true
-    
-    # Try multiple times to add the route
-    local max_tries=3
-    local try=1
-    while [ $try -le $max_tries ]; do
-        log "Attempt $try/$max_tries to add route"
-        if ip route add default via "${gateway_ip}" dev bat0; then
-            log "Successfully added default route via ${gateway_ip}"
-            return 0
-        fi
-        try=$((try + 1))
-        [ $try -le $max_tries ] && sleep 2
-    done
-    
-    log "Failed to add default route after $max_tries attempts"
-    return 1
+    ip route del default 2>/dev/null || true
+    ip route add default via "${gateway_ip}" dev bat0 || true
+    return 0
 }
 
 # Start main script execution
@@ -374,10 +549,11 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
         log "Debug: No LAN interface available"
     fi
     
+    # Enable IP forwarding
     sysctl -w net.ipv4.ip_forward=1 || { echo "Error: Failed to enable IP forwarding"; exit 1; }
     
     log "Debug: Flushing existing routes and firewall rules"
-    # Clean up existing firewall rules
+    # Clean up existing firewall rules, but don't touch routes
     iptables -F || { echo "Error: Failed to flush iptables rules"; exit 1; }
     iptables -t nat -F || { echo "Error: Failed to flush NAT rules"; exit 1; }
     iptables -t mangle -F || { echo "Error: Failed to flush mangle rules"; exit 1; }
@@ -387,30 +563,58 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
     iptables -P FORWARD ACCEPT || { echo "Error: Failed to set FORWARD policy"; exit 1; }
     iptables -P OUTPUT ACCEPT || { echo "Error: Failed to set OUTPUT policy"; exit 1; }
     
-    log "Debug: Configuring connection tracking"
-    # Connection tracking
-    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT || { echo "Error: Failed to add INPUT state rule"; exit 1; }
-    iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT || { echo "Error: Failed to add FORWARD state rule"; exit 1; }
-    
-    log "Debug: Setting up mesh routing rules"
-    # Basic mesh routing
-    iptables -A FORWARD -i bat0 -j ACCEPT || { echo "Error: Failed to add FORWARD input rule"; exit 1; }
-    iptables -A FORWARD -o bat0 -j ACCEPT || { echo "Error: Failed to add FORWARD output rule"; exit 1; }
-    
-    log "Debug: Configuring NAT"
-    # NAT configuration
-    iptables -t nat -A POSTROUTING -o bat0 -j MASQUERADE || { echo "Error: Failed to add MASQUERADE rule"; exit 1; }
+    # Configure NAT and routing for server mode
+    if [ "${BATMAN_GW_MODE}" = "server" ] && [ -n "${VALID_WAN}" ]; then
+        log "Debug: Setting up NAT and routing for server mode"
+        
+        # Allow established connections
+        iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+        iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+        
+        # Allow forwarding between interfaces
+        iptables -A FORWARD -i bat0 -j ACCEPT
+        iptables -A FORWARD -o bat0 -j ACCEPT
+        iptables -A FORWARD -i "${VALID_WAN}" -j ACCEPT
+        iptables -A FORWARD -o "${VALID_WAN}" -j ACCEPT
+        
+        # NAT configuration for internet access
+        # Masquerade all traffic from the mesh network going out WAN
+        iptables -t nat -A POSTROUTING -s "${NODE_IP%.*}.0/${MESH_NETMASK}" -o "${VALID_WAN}" -j MASQUERADE
+        
+        # Make sure we accept forwarded packets
+        iptables -A FORWARD -i bat0 -o "${VALID_WAN}" -j ACCEPT
+        iptables -A FORWARD -i "${VALID_WAN}" -o bat0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+        
+        # If we have a LAN interface, set up rules for it too
+        if [ -n "${VALID_LAN}" ]; then
+            iptables -A FORWARD -i "${VALID_LAN}" -o bat0 -j ACCEPT
+            iptables -A FORWARD -i bat0 -o "${VALID_LAN}" -j ACCEPT
+            iptables -t nat -A POSTROUTING -s "${NODE_IP%.*}.0/${MESH_NETMASK}" -o "${VALID_LAN}" -j MASQUERADE
+        fi
+    else
+        # Client mode or no WAN interface
+        log "Debug: Setting up basic forwarding rules"
+        iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+        iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+        iptables -A FORWARD -i bat0 -j ACCEPT
+        iptables -A FORWARD -o bat0 -j ACCEPT
+    fi
     
     log "Debug: Setting up logging rules"
     # Security logging
-    iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables_INPUT_denied: " --log-level 7 || echo "Warning: Failed to add INPUT logging rule"
-    iptables -A FORWARD -m limit --limit 5/min -j LOG --log-prefix "iptables_FORWARD_denied: " --log-level 7 || echo "Warning: Failed to add FORWARD logging rule"
+    iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables_INPUT_denied: " --log-level 7
+    iptables -A FORWARD -m limit --limit 5/min -j LOG --log-prefix "iptables_FORWARD_denied: " --log-level 7
     
-    log "Debug: Detecting gateway"
-    # Detect and configure gateway routing
-    if [ "${BATMAN_GW_MODE}" != "server" ]; then
+    # Configure routing based on mode
+    if [ "${BATMAN_GW_MODE}" = "server" ]; then
+        log "Running in server mode, configuring gateway rules"
+        if [ -n "${VALID_WAN}" ]; then
+            configure_routing "${NODE_IP}" || log "Warning: Failed to configure initial routing"
+        else
+            log "Warning: Server mode but no WAN interface available"
+        fi
+    else
         log "Client mode: Starting gateway detection"
-        
         detected_gateway=$(detect_gateway_ip) || {
             log "DEBUG: Initial gateway detection failed, will retry later"
             detected_gateway=""
@@ -419,92 +623,16 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
         if [ -n "${detected_gateway}" ]; then
             GATEWAY_IP="${detected_gateway}"
             log "DEBUG: Using detected gateway: ${GATEWAY_IP}"
-            
-            # Set up routing with fallback
-            if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 150; then
-                log "DEBUG: Failed to add primary route, attempting fallback configuration"
-                if ! ip route add default via "${GATEWAY_IP}" dev bat0 metric 200; then
-                    log "DEBUG: Failed to configure any routing"
-                    # Don't exit here, just continue and retry later
-                fi
-            fi
-            
-            # Monitor gateway status in background with proper process management
-            {
-                while true; do
-                    sleep 30
-                    if ! batctl ping -c 1 -t 5 "${GATEWAY_IP}" >/dev/null 2>&1; then
-                        log "DEBUG: Gateway ${GATEWAY_IP} became unreachable, attempting to find new gateway"
-                        new_gateway=$(detect_gateway_ip)
-                        if [ -n "${new_gateway}" ] && [ "${new_gateway}" != "${GATEWAY_IP}" ]; then
-                            log "DEBUG: Switching to new gateway: ${new_gateway}"
-                            ip route replace default via "${new_gateway}" dev bat0 metric 150 || {
-                                log "DEBUG: Failed to update route to new gateway"
-                            }
-                            GATEWAY_IP="${new_gateway}"
-                        fi
-                    fi
-                done
-            } </dev/null >/dev/null 2>&1 &
-            
-            # Store the monitoring process PID in a file for proper cleanup
-            echo $! > /var/run/mesh-network-monitor.pid
+            configure_routing "${GATEWAY_IP}" || log "Warning: Failed to configure initial routing"
         else
             log "DEBUG: No valid gateway found initially, continuing without gateway"
-            # Don't exit here, just continue and the service will retry later
         fi
-    else
-        log "Running in server mode, configuring gateway rules"
-        
-        # Configure WAN interface rules
-        if [ -n "${VALID_WAN}" ]; then
-            log "Setting up gateway forwarding rules for WAN interface ${VALID_WAN}"
-            
-            if ! iptables -A FORWARD -i bat0 -o "${VALID_WAN}" -j ACCEPT; then
-                log "ERROR: Failed to add bat0 to WAN forwarding rule"
-                exit 1
-            fi
-            
-            if ! iptables -A FORWARD -i "${VALID_WAN}" -o bat0 -j ACCEPT; then
-                log "ERROR: Failed to add WAN to bat0 forwarding rule" 
-                exit 1
-            fi
-            
-            log "Setting up NAT for internet access"
-            if ! iptables -t nat -A POSTROUTING -o "${VALID_WAN}" -j MASQUERADE; then
-                log "ERROR: Failed to add NAT masquerade rule"
-                exit 1
-            fi
-        else
-            log "WARNING: No valid WAN interface found for server mode"
-        fi
-        
-        # Configure LAN interface rules if available
-        if [ -n "${VALID_LAN}" ]; then
-            log "Setting up LAN interface rules for ${VALID_LAN}"
-            
-            if ! iptables -A FORWARD -i "${VALID_LAN}" -o bat0 -j ACCEPT; then
-                log "ERROR: Failed to add LAN to bat0 forwarding rule"
-                exit 1
-            fi
-            
-            if ! iptables -A FORWARD -i bat0 -o "${VALID_LAN}" -j ACCEPT; then
-                log "ERROR: Failed to add bat0 to LAN forwarding rule"
-                exit 1
-            fi
-            
-            # Add NAT for LAN clients
-            if ! iptables -t nat -A POSTROUTING -s "${NETWORK_ADDRESS}/${MESH_NETMASK}" -o "${VALID_LAN}" -j MASQUERADE; then
-                log "ERROR: Failed to add LAN NAT masquerade rule"
-                exit 1
-            fi
-        fi
-        
-        # Add logging for debugging
-        log "DEBUG: Verifying iptables rules..."
-        iptables -L FORWARD -n -v
-        iptables -t nat -L POSTROUTING -n -v
     fi
+    
+    # Verify the configuration
+    log "Debug: Verifying NAT and routing configuration"
+    iptables -t nat -L -v
+    ip route show
 fi
 
 log "Debug: Setting BATMAN-adv parameters"
@@ -589,22 +717,6 @@ cleanup() {
 
 trap cleanup EXIT
 
-# Function to monitor gateway
-monitor_gateway() {
-    local current_gateway="$1"
-    local unreachable=true
-    
-    for i in {1..3}; do
-        if ping -c 1 -W 2 "${current_gateway}" >/dev/null 2>&1; then
-            unreachable=false
-            break
-        fi
-        sleep 2
-    done
-    
-    echo "${unreachable}"
-}
-
 # If running as a service, keep the script running to maintain the network
 if [ "${1}" = "service" ]; then
     # Simplified service monitoring
@@ -618,32 +730,37 @@ if [ "${1}" = "service" ]; then
             continue
         fi
         
-        # Check if we need to configure a gateway
-        if ! ip route show | grep -q "^default"; then
-            log "No default route found, checking for gateway..."
-            gateway_ip=$(detect_gateway_ip)
-            
-            if [ -n "${gateway_ip}" ]; then
-                if configure_routing "${gateway_ip}"; then
-                    # Wait a moment to ensure route is stable
-                    sleep 2
-                    # Verify route was actually added
-                    if ! ip route show | grep -q "^default"; then
-                        log "Route verification failed, will retry"
-                        continue
-                    fi
-                fi
+        # Different monitoring based on mode
+        if [ "${BATMAN_GW_MODE}" = "server" ]; then
+            # For server mode, just verify NAT and forwarding are working
+            if ! iptables -t nat -L POSTROUTING -v | grep -q "${VALID_WAN}"; then
+                log "NAT rules missing, reconfiguring..."
+                configure_routing "${NODE_IP}"
             fi
         else
-            # Passive monitoring - only check if current gateway is still valid
-            current_gateway=$(ip route show | grep "^default" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
-            if [ -n "${current_gateway}" ]; then
-                # Check gateway reachability
-                unreachable=$(monitor_gateway "${current_gateway}")
+            # For client mode, check gateway and routing
+            if ! ip route show | grep -q "^default"; then
+                log "No default route found, checking for gateway..."
+                gateway_ip=$(detect_gateway_ip)
                 
-                if [ "${unreachable}" = "true" ]; then
-                    log "Current gateway ${current_gateway} is unreachable after multiple attempts"
-                    ip route del default 2>/dev/null || true
+                if [ -n "${gateway_ip}" ]; then
+                    if configure_routing "${gateway_ip}"; then
+                        sleep 2
+                        if ! ip route show | grep -q "^default"; then
+                            log "Route verification failed, will retry"
+                            continue
+                        fi
+                    fi
+                fi
+            else
+                # Check if current gateway is still valid
+                current_gateway=$(ip route show | grep "^default" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+                if [ -n "${current_gateway}" ]; then
+                    unreachable=$(monitor_gateway "${current_gateway}")
+                    if [ "${unreachable}" = "true" ]; then
+                        log "Current gateway ${current_gateway} is unreachable after multiple attempts"
+                        ip route del default 2>/dev/null || true
+                    fi
                 fi
             fi
         fi
@@ -651,3 +768,4 @@ if [ "${1}" = "service" ]; then
         sleep "${RETRY_INTERVAL}"
     done
 fi
+
