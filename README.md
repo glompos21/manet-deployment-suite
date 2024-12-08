@@ -133,26 +133,31 @@ Minimum required settings in `/etc/mesh-network/mesh-config.conf`:
 
 ```bash
 # Interface Configuration
-MESH_INTERFACE=wlan0          # Interface for mesh networking
-NODE_IP=10.0.0.x             # Unique for each node
+MESH_INTERFACE=wlan0          # Primary mesh interface
+NODE_IP=10.0.0.x             # Node IP (must be valid IPv4 format)
 MESH_NETMASK=16              # Network mask (e.g., 16 for /16)
+GATEWAY_IP=10.0.0.1          # Gateway IP (must be valid IPv4 format)
 
 # Mesh Parameters
+MESH_MODE=ad-hoc             # Must be set to ad-hoc
 MESH_ESSID=mesh-network      # Network name (same for all nodes)
 MESH_CHANNEL=1               # WiFi channel (1, 6, or 11)
 MESH_CELL_ID=02:12:34:56:78:9A  # Cell ID (same for all nodes)
 
 # Batman-adv Settings
 BATMAN_GW_MODE=client        # client, server, or off
+BATMAN_ROUTING_ALGORITHM=BATMAN_V  # Must be BATMAN_IV or BATMAN_V
 ```
 
 ### Advanced Configuration
 Optional settings for enhanced functionality:
 
 ```bash
-# Interface Options
+# Additional Interface Options
 AP_IFACE=wlan1              # Access point interface
-WAN_IFACE=eth0              # WAN interface for gateway nodes
+WAN_IFACE=wlan2             # Wireless WAN interface
+ETH_WAN=eth0                # Ethernet WAN interface
+ETH_LAN=eth1                # Ethernet LAN interface
 
 # Performance Tuning
 MESH_MTU=1500               # MTU size for mesh interface
