@@ -378,8 +378,16 @@ configure_routing() {
     # For client mode
     log "Setting up default route via ${gateway_ip}"
     # Remove any existing default routes
-    ip route del default 2>/dev/null || true
-    ip route add default via "${gateway_ip}" dev bat0 || true
+    if ip route del default 2>/dev/null; then
+        log "Successfully removed existing default route"
+    else 
+        log "No existing default route to remove"
+    fi
+    if ip route add default via "${gateway_ip}" dev bat0; then
+        log "Successfully added new default route via ${gateway_ip}"
+    else
+        log "Failed to add default route via ${gateway_ip}"
+    fi
     return 0
 }
 
@@ -499,7 +507,7 @@ ip route add "${NETWORK_ADDRESS}/${MESH_NETMASK}" dev bat0 proto kernel scope li
 VALID_WAN=""
 VALID_LAN=""
 
-# Modify the get_valid_interfaces function
+# Function to get valid interfaces
 get_valid_interfaces() {
     log "Validating network interfaces..."
     
@@ -515,18 +523,14 @@ get_valid_interfaces() {
     fi
     
     # Check LAN interfaces with more detailed validation
-    if ip link show "${ETH_LAN}" >/dev/null 2>&1 && [ -n "${ETH_LAN}" ]; then
+    if ip link show "${AP_IFACE}" >/dev/null 2>&1 && [ -n "${AP_IFACE}" ]; then
+        VALID_LAN="${AP_IFACE}"
+        log "Found LAN interface (AP): ${VALID_LAN}"
+    elif ip link show "${ETH_LAN}" >/dev/null 2>&1 && [ -n "${ETH_LAN}" ]; then
         VALID_LAN="${ETH_LAN}"
         log "Found LAN interface: ${VALID_LAN}"
     else
         log "WARNING: No valid LAN interface found"
-    fi
-    
-    # Additional validation for server mode
-    if [ "${BATMAN_GW_MODE}" = "server" ]; then
-        if [ -z "${VALID_WAN}" ]; then
-            log "WARNING: Server mode with no WAN interface"
-        fi
     fi
 }
 
@@ -578,8 +582,8 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
         iptables -A FORWARD -o "${VALID_WAN}" -j ACCEPT
         
         # NAT configuration for internet access
-        # Masquerade all traffic from the mesh network going out WAN
-        iptables -t nat -A POSTROUTING -s "${NODE_IP%.*}.0/${MESH_NETMASK}" -o "${VALID_WAN}" -j MASQUERADE
+        # Masquerade all traffic going out WAN
+        iptables -t nat -A POSTROUTING -o "${VALID_WAN}" -j MASQUERADE
         
         # Make sure we accept forwarded packets
         iptables -A FORWARD -i bat0 -o "${VALID_WAN}" -j ACCEPT
@@ -587,17 +591,31 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
         
         # If we have a LAN interface, set up rules for it too
         if [ -n "${VALID_LAN}" ]; then
-            iptables -A FORWARD -i "${VALID_LAN}" -o bat0 -j ACCEPT
-            iptables -A FORWARD -i bat0 -o "${VALID_LAN}" -j ACCEPT
-            iptables -t nat -A POSTROUTING -s "${NODE_IP%.*}.0/${MESH_NETMASK}" -o "${VALID_LAN}" -j MASQUERADE
+            # Allow forwarding between LAN and mesh/WAN
+            iptables -A FORWARD -i "${VALID_LAN}" -j ACCEPT
+            iptables -A FORWARD -o "${VALID_LAN}" -j ACCEPT
         fi
     else
         # Client mode or no WAN interface
-        log "Debug: Setting up basic forwarding rules"
+        log "Debug: Setting up client mode routing and forwarding"
         iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
         iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+        
+        # Allow forwarding between bat0 and all interfaces
         iptables -A FORWARD -i bat0 -j ACCEPT
         iptables -A FORWARD -o bat0 -j ACCEPT
+        
+        # If we have a LAN interface (AP), set up forwarding to/from mesh
+        if [ -n "${VALID_LAN}" ]; then
+            log "Debug: Setting up LAN forwarding for client mode"
+            
+            # Allow forwarding between LAN and mesh
+            iptables -A FORWARD -i "${VALID_LAN}" -j ACCEPT
+            iptables -A FORWARD -o "${VALID_LAN}" -j ACCEPT
+            
+            # NAT all traffic from LAN to mesh
+            iptables -t nat -A POSTROUTING -o bat0 -j MASQUERADE
+        fi
     fi
     
     log "Debug: Setting up logging rules"
@@ -614,25 +632,26 @@ if [ "${ENABLE_ROUTING}" = "1" ]; then
             log "Warning: Server mode but no WAN interface available"
         fi
     else
-        log "Client mode: Starting gateway detection"
-        detected_gateway=$(detect_gateway_ip) || {
-            log "DEBUG: Initial gateway detection failed, will retry later"
-            detected_gateway=""
-        }
+        log "Client mode: Pending gateway detection"
+        # log "Client mode: Starting gateway detection"
+        # detected_gateway=$(detect_gateway_ip) || {
+        #     log "DEBUG: Initial gateway detection failed, will retry later"
+        #     detected_gateway=""
+        # }
         
-        if [ -n "${detected_gateway}" ]; then
-            GATEWAY_IP="${detected_gateway}"
-            log "DEBUG: Using detected gateway: ${GATEWAY_IP}"
-            configure_routing "${GATEWAY_IP}" || log "Warning: Failed to configure initial routing"
-        else
-            log "DEBUG: No valid gateway found initially, continuing without gateway"
-        fi
+        # if [ -n "${detected_gateway}" ]; then
+        #     GATEWAY_IP="${detected_gateway}"
+        #     log "DEBUG: Using detected gateway: ${GATEWAY_IP}"
+        #     configure_routing "${GATEWAY_IP}" || log "Warning: Failed to configure initial routing"
+        # else
+        #     log "DEBUG: No valid gateway found initially, continuing without gateway"
+        # fi
     fi
     
     # Verify the configuration
-    log "Debug: Verifying NAT and routing configuration"
-    iptables -t nat -L -v
-    ip route show
+    # log "Debug: Verifying NAT and routing configuration"
+    # iptables -t nat -L -v
+    # ip route show
 fi
 
 log "Debug: Setting BATMAN-adv parameters"
