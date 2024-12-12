@@ -89,3 +89,11 @@ solution: don't do that
 
 ---
 
+problem: on ubuntu, it does not use ifupdown or network-manager by default, it instead uses systemd-networkd. (it messes with dnsmasq port 53)
+solution: carefully re-configure it to use ifupdown and network-manager. 
+
+install ifupdown and network-manager: 'sudo apt install ifupdown network-manager'
+configure ifupdown: 'sudo nano /etc/network/interfaces' and give ips or dhcp to interfaces
+stop, disable, and mask or remove systemd-networkd: 'sudo systemctl stop systemd-networkd' 'sudo systemctl disable systemd-networkd' 'sudo systemctl mask systemd-networkd'
+restart network-manager: 'sudo systemctl restart network-manager'
+
