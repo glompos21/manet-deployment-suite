@@ -10,6 +10,23 @@ echo "Central Time: $(TZ='America/Chicago' date)"
 # Display the current UTC date and time
 echo "UTC Time: $(TZ='UTC' date)"
 
+# Display network interfaces and their IPv4 addresses
+echo -e "\nNetwork:"
+# Get all network interfaces excluding lo (loopback)
+found_ip=false
+for interface in $(ls /sys/class/net/ | grep -v lo); do
+    # Check if interface has an IPv4 address assigned
+    if ip addr show $interface 2>/dev/null | grep -q "inet "; then
+        ipv4=$(ip addr show $interface | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+        echo "$interface: $ipv4"
+        found_ip=true
+    fi
+done
+
+if [ "$found_ip" = false ]; then
+    echo "No IPv4 addresses assigned"
+fi
+
 # Display the temperatures from the first two thermal zones
 echo -e "\nSystem Temperatures:"
 if [ -f /sys/class/thermal/thermal_zone0/temp ]; then
