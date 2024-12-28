@@ -89,3 +89,6 @@ solution: don't do that
 
 ---
 
+problem: connection to a node are unstable, has bouts where the connection is lost and then regained.
+solution: it is likely hitting max cpu usage, this happens with first gen pi zeros and other low end hardware.
+this also happens when pinning the cpu on a device, eg large file operations, gzip, etc.
