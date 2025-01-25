@@ -75,7 +75,7 @@ Before deployment, consider:
    - Hybrid setup
 
 3. **IP Addressing**
-   - Mesh network range (e.g., 10.0.0.0/16)
+   - Mesh network range (e.g., 10.0.0.0/24)
    - AP network range (e.g., 10.20.0.0/24)
    - WAN configuration
 
@@ -135,7 +135,7 @@ Minimum required settings in `/etc/mesh-network/mesh-config.conf`:
 # Interface Configuration
 MESH_INTERFACE=wlan0          # Primary mesh interface
 NODE_IP=10.0.0.x             # Node IP (must be valid IPv4 format)
-MESH_NETMASK=16              # Network mask (e.g., 16 for /16)
+MESH_NETMASK=24              # Network mask (e.g., 16 for /16)
 GATEWAY_IP=10.0.0.1          # Gateway IP (must be valid IPv4 format)
 
 # Mesh Parameters
@@ -315,7 +315,7 @@ sudo sysctl -a | grep batman  # Kernel parameters
 ## Advanced Topics
 
 ### Custom Gateway Selection
-The system uses a sophisticated gateway selection process:
+Gateway selection process:
 1. Checks ARP cache for potential gateways
 2. Verifies gateway status using batman-adv
 3. Tests connectivity before configuring routes
@@ -334,11 +334,6 @@ For critical deployments:
 sudo batctl hardif $MESH_INTERFACE gw_mode client
 sudo batctl hardif $MESH_INTERFACE orig_interval 1000
 sudo batctl hardif $MESH_INTERFACE hop_penalty 15
-
-# Network interface tuning
-sudo sysctl -w net.ipv4.ip_forward=1
-sudo sysctl -w net.core.rmem_max=16777216
-sudo sysctl -w net.core.wmem_max=16777216
 ```
 
 ## References
