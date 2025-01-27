@@ -20,6 +20,8 @@
 
 The B.A.T.M.A.N. advanced (batman-adv) is a layer 2 routing protocol implemented as a Linux kernel module, designed specifically for mobile ad-hoc networks. This repository provides a comprehensive suite of tools and configurations to simplify the deployment and management of batman-adv networks.
 
+This tool allows users to start at a point where layer 3/IP networking is already configured. From here, users can provide full internet access to their mesh, remote meshes can be bridged with other meshes, TAK infrastructure, etc. The sky is the limit!
+
 ### Key Features
 - Run an IP layer on batman-adv without manual configuration
 - Automatic gateway detection and configuration
